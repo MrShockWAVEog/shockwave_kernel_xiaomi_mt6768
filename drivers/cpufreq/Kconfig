@@ -212,6 +212,15 @@ config CPU_FREQ_GOV_BLU_SCHEDUTIL
 	  A schedutil variant with a linear frequency response, 12.5% frequency
 	  headroom and separate up/down rate limit defaults and tunables.
 
+config CPU_FREQ_GOV_INTERACTIVE
+	bool "'interactive' cpufreq policy governor"
+	depends on TRACEPOINTS
+	select CPU_FREQ_GOV_ATTR_SET
+	select IRQ_WORK
+	help
+	  Choose CPU frequency based on recent load and sample on idle exit
+	  for responsive frequency changes under latency-sensitive workloads.
+
 comment "CPU frequency scaling drivers"
 
 config CPUFREQ_DT
