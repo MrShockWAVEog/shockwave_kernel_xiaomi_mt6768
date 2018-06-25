@@ -3,8 +3,8 @@
  * Copyright (c) 2019 MediaTek Inc.
  */
 
-static unsigned int get_next_freq(struct sugov_policy *sg_policy,
-				  unsigned long util, unsigned long max)
+static unsigned int sugov_get_next_freq(struct sugov_policy *sg_policy,
+					unsigned long util, unsigned long max)
 {
 	struct cpufreq_policy *policy = sg_policy->policy;
 	int cpu = policy->cpu;

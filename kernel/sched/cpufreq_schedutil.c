@@ -71,6 +71,19 @@ struct sugov_cpu {
 
 static DEFINE_PER_CPU(struct sugov_cpu, sugov_cpu);
 
+#ifdef CONFIG_CPU_FREQ_GOV_BLU_SCHEDUTIL
+static struct cpufreq_governor blu_schedutil_gov;
+#endif
+
+static bool sugov_is_blu(const struct cpufreq_policy *policy)
+{
+#ifdef CONFIG_CPU_FREQ_GOV_BLU_SCHEDUTIL
+	return policy->governor == &blu_schedutil_gov;
+#else
+	return false;
+#endif
+}
+
 /************************ Governor internals ***********************/
 
 static void sugov_update_rate_limit_us(struct sugov_policy *sg_policy)
@@ -212,7 +225,7 @@ static void sugov_deferred_update(struct sugov_policy *sg_policy, u64 time,
 #include "cpufreq_schedutil_plus.c"
 #else
 /**
- * get_next_freq - Compute a new frequency for a given cpufreq policy.
+ * sugov_get_next_freq - Compute a new frequency for a given cpufreq policy.
  * @sg_policy: schedutil policy object to compute the new frequency for.
  * @util: Current CPU utilization.
  * @max: CPU capacity.
@@ -233,8 +246,8 @@ static void sugov_deferred_update(struct sugov_policy *sg_policy, u64 time,
  * next_freq (as calculated above) is returned, subject to policy min/max and
  * cpufreq driver limitations.
  */
-static unsigned int get_next_freq(struct sugov_policy *sg_policy,
-				  unsigned long util, unsigned long max)
+static unsigned int sugov_get_next_freq(struct sugov_policy *sg_policy,
+					unsigned long util, unsigned long max)
 {
 	struct cpufreq_policy *policy = sg_policy->policy;
 	unsigned int freq = arch_scale_freq_invariant() ?
@@ -260,6 +273,25 @@ static unsigned int get_next_freq(struct sugov_policy *sg_policy,
 #endif
 }
 #endif
+
+static unsigned int get_next_freq(struct sugov_policy *sg_policy,
+				 unsigned long util, unsigned long max)
+{
+	struct cpufreq_policy *policy = sg_policy->policy;
+	unsigned int freq;
+
+	if (!sugov_is_blu(policy))
+		return sugov_get_next_freq(sg_policy, util, max);
+
+	freq = arch_scale_freq_invariant() ? policy->cpuinfo.max_freq :
+					    policy->cur;
+	freq = (freq + (freq >> 3)) * util / max;
+
+	sg_policy->need_freq_update = false;
+	sg_policy->prev_cached_raw_freq = sg_policy->cached_raw_freq;
+	sg_policy->cached_raw_freq = freq;
+	return cpufreq_driver_resolve_freq(policy, freq);
+}
 
 extern long
 schedtune_cpu_margin_with(unsigned long util, int cpu, struct task_struct *p);
@@ -704,7 +736,8 @@ static void sugov_irq_work(struct irq_work *irq_work)
 
 /************************** sysfs interface ************************/
 
-static struct sugov_tunables *global_tunables;
+/* Policies using different governors must never share a sysfs object. */
+static struct sugov_tunables *global_tunables[1 + IS_ENABLED(CONFIG_CPU_FREQ_GOV_BLU_SCHEDUTIL)];
 static DEFINE_MUTEX(global_tunables_lock);
 
 static inline struct sugov_tunables *to_sugov_tunables(struct gov_attr_set *attr_set)
@@ -887,24 +920,16 @@ static struct sugov_tunables *sugov_tunables_alloc(struct sugov_policy *sg_polic
 	struct sugov_tunables *tunables;
 
 	tunables = kzalloc(sizeof(*tunables), GFP_KERNEL);
-	if (tunables) {
+	if (tunables)
 		gov_attr_set_init(&tunables->attr_set, &sg_policy->tunables_hook);
-		if (!have_governor_per_policy())
-			global_tunables = tunables;
-	}
 	return tunables;
-}
-
-static void sugov_clear_global_tunables(void)
-{
-	if (!have_governor_per_policy())
-		global_tunables = NULL;
 }
 
 static int sugov_init(struct cpufreq_policy *policy)
 {
 	struct sugov_policy *sg_policy;
 	struct sugov_tunables *tunables;
+	bool blu = sugov_is_blu(policy);
 	int ret = 0;
 
 	/* State should be equivalent to EXIT */
@@ -927,15 +952,16 @@ static int sugov_init(struct cpufreq_policy *policy)
 
 	mutex_lock(&global_tunables_lock);
 
-	if (global_tunables) {
+	tunables = global_tunables[blu];
+	if (tunables) {
 		if (WARN_ON(have_governor_per_policy())) {
 			ret = -EINVAL;
 			goto stop_kthread;
 		}
 		policy->governor_data = sg_policy;
-		sg_policy->tunables = global_tunables;
+		sg_policy->tunables = tunables;
 
-		gov_attr_set_get(&global_tunables->attr_set, &sg_policy->tunables_hook);
+		gov_attr_set_get(&tunables->attr_set, &sg_policy->tunables_hook);
 		goto out;
 	}
 
@@ -945,17 +971,20 @@ static int sugov_init(struct cpufreq_policy *policy)
 		goto stop_kthread;
 	}
 
-	tunables->up_rate_limit_us = cpufreq_policy_transition_delay_us(policy);
-	tunables->down_rate_limit_us = cpufreq_policy_transition_delay_us(policy);
+	tunables->up_rate_limit_us = blu ? 500 : cpufreq_policy_transition_delay_us(policy);
+	tunables->down_rate_limit_us = blu ? 4000 : tunables->up_rate_limit_us;
 
 	policy->governor_data = sg_policy;
 	sg_policy->tunables = tunables;
 
 	ret = kobject_init_and_add(&tunables->attr_set.kobj, &sugov_tunables_ktype,
 				   get_governor_parent_kobj(policy), "%s",
-				   schedutil_gov.name);
+				   policy->governor->name);
 	if (ret)
 		goto fail;
+
+	if (!have_governor_per_policy())
+		global_tunables[blu] = tunables;
 
 out:
 	mutex_unlock(&global_tunables_lock);
@@ -964,7 +993,6 @@ out:
 fail:
 	kobject_put(&tunables->attr_set.kobj);
 	policy->governor_data = NULL;
-	sugov_clear_global_tunables();
 
 stop_kthread:
 	sugov_kthread_stop(sg_policy);
@@ -990,8 +1018,8 @@ static void sugov_exit(struct cpufreq_policy *policy)
 
 	count = gov_attr_set_put(&tunables->attr_set, &sg_policy->tunables_hook);
 	policy->governor_data = NULL;
-	if (!count)
-		sugov_clear_global_tunables();
+	if (!count && !have_governor_per_policy())
+		global_tunables[sugov_is_blu(policy)] = NULL;
 
 	mutex_unlock(&global_tunables_lock);
 
@@ -1098,6 +1126,25 @@ static int __init sugov_register(void)
 	return cpufreq_register_governor(&schedutil_gov);
 }
 fs_initcall(sugov_register);
+
+#ifdef CONFIG_CPU_FREQ_GOV_BLU_SCHEDUTIL
+static struct cpufreq_governor blu_schedutil_gov = {
+	.name			= "blu_schedutil",
+	.owner			= THIS_MODULE,
+	.dynamic_switching	= true,
+	.init			= sugov_init,
+	.exit			= sugov_exit,
+	.start			= sugov_start,
+	.stop			= sugov_stop,
+	.limits			= sugov_limits,
+};
+
+static int __init blu_schedutil_register(void)
+{
+	return cpufreq_register_governor(&blu_schedutil_gov);
+}
+fs_initcall(blu_schedutil_register);
+#endif
 
 #ifdef CONFIG_ENERGY_MODEL
 extern bool sched_energy_update;
