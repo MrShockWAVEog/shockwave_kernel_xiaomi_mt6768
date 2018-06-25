@@ -205,6 +205,13 @@ config CPU_FREQ_GOV_SCHEDUTIL
 
 	  If in doubt, say N.
 
+config CPU_FREQ_GOV_BLU_SCHEDUTIL
+	bool "'blu_schedutil' cpufreq policy governor"
+	depends on CPU_FREQ_GOV_SCHEDUTIL
+	help
+	  A schedutil variant with a linear frequency response, 12.5% frequency
+	  headroom and separate up/down rate limit defaults and tunables.
+
 comment "CPU frequency scaling drivers"
 
 config CPUFREQ_DT
