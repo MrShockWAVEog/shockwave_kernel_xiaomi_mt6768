@@ -16,6 +16,7 @@
 #include <linux/dax.h>
 #include <linux/fs.h>
 #include <linux/mm.h>
+#include "slab.h"
 
 /*
  *		Double CLOCK lists
@@ -551,6 +552,9 @@ static enum lru_status shadow_lru_isolate(struct list_head *item,
 	struct xa_node *node = container_of(item, struct xa_node, private_list);
 	XA_STATE(xas, node->array, 0);
 	struct address_space *mapping;
+	struct mem_cgroup *memcg;
+	struct page *page;
+	pg_data_t *pgdat;
 	int ret;
 
 	/*
@@ -591,12 +595,23 @@ static enum lru_status shadow_lru_isolate(struct list_head *item,
 	xas.xa_offset = node->offset;
 	xas.xa_shift = node->shift + XA_CHUNK_SHIFT;
 	xas_set_update(&xas, workingset_update_node);
+
+	page = virt_to_head_page(node);
+	pgdat = page_pgdat(page);
+	rcu_read_lock();
+	memcg = memcg_from_slab_page(page);
+	if (!memcg || mem_cgroup_is_root(memcg))
+		__mod_node_page_state(pgdat, WORKINGSET_NODERECLAIM, 1);
+	else
+		__mod_lruvec_state(mem_cgroup_lruvec(pgdat, memcg),
+				   WORKINGSET_NODERECLAIM, 1);
+	rcu_read_unlock();
+
 	/*
 	 * We could store a shadow entry here which was the minimum of the
 	 * shadow entries we were tracking ...
 	 */
 	xas_store(&xas, NULL);
-	inc_lruvec_page_state(virt_to_page(node), WORKINGSET_NODERECLAIM);
 
 out_invalid:
 	xa_unlock_irq(&mapping->i_pages);
