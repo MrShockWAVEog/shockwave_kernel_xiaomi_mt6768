@@ -2904,7 +2904,9 @@ vm_fault_t do_swap_page(struct vm_fault *vmf)
 	struct vm_area_struct *vma = vmf->vma;
 	struct page *page = NULL, *swapcache;
 	struct mem_cgroup *memcg;
+	struct swap_info_struct *si;
 	swp_entry_t entry;
+	bool skip_swapcache;
 	pte_t pte;
 	int locked;
 	int exclusive = 0;
@@ -2935,17 +2937,23 @@ vm_fault_t do_swap_page(struct vm_fault *vmf)
 		goto out;
 	}
 
-
 	delayacct_set_flag(DELAYACCT_PF_SWAPIN);
+
+	/*
+	 * Sample the swap count before looking up the cache. A concurrent
+	 * fault can insert a cache page and then drop the count to one.
+	 * Sampling after a cache miss could select a direct read after the
+	 * device copy has been discarded.
+	 */
+	si = swp_swap_info(entry);
+	skip_swapcache = (READ_ONCE(si->flags) & SWP_SYNCHRONOUS_IO) &&
+			 __swp_swapcount(entry) == 1;
+
 	page = lookup_swap_cache(entry, vma, vmf->address);
 	swapcache = page;
 
 	if (!page) {
-		struct swap_info_struct *si = swp_swap_info(entry);
-
-		if (si->flags & SWP_SYNCHRONOUS_IO &&
-				__swap_count(si, entry) == 1) {
-			/* skip swapcache */
+		if (skip_swapcache) {
 			page = alloc_page_vma(GFP_HIGHUSER_MOVABLE, vma,
 							vmf->address);
 			if (page) {
