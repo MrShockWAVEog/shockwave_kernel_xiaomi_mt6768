@@ -501,6 +501,8 @@ struct cfs_rq {
 	unsigned int		nr_running;
 	unsigned int		h_nr_running;
 
+	s64			avg_vruntime;
+	unsigned long		avg_load;
 	u64			exec_clock;
 	u64			min_vruntime;
 #ifndef CONFIG_64BIT

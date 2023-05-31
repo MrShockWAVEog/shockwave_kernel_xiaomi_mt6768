@@ -492,10 +492,10 @@ struct sched_entity {
 	struct sched_avg		avg;
 #endif
 
-	ANDROID_KABI_RESERVE(1);
-	ANDROID_KABI_RESERVE(2);
-	ANDROID_KABI_RESERVE(3);
-	ANDROID_KABI_RESERVE(4);
+	ANDROID_KABI_USE(1, u64 deadline);
+	ANDROID_KABI_USE(2, u64 min_vruntime);
+	ANDROID_KABI_USE(3, s64 vlag);
+	ANDROID_KABI_USE(4, u64 slice);
 };
 
 struct sched_rt_entity {
