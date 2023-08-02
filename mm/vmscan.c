@@ -3969,6 +3969,7 @@ void lru_gen_look_around(struct page_vma_mapped_walk *pvmw)
 	struct lru_gen_mm_walk *walk;
 	int young = 0;
 	unsigned long bitmap[BITS_TO_LONGS(MIN_LRU_BATCH)] = {};
+	bool can_swap = !page_is_file_cache(pvmw->page);
 	struct mem_cgroup *memcg = page_memcg(pvmw->page);
 	struct pglist_data *pgdat = page_pgdat(pvmw->page);
 	struct lruvec *lruvec = mem_cgroup_lruvec(pgdat, memcg);
@@ -4023,6 +4024,10 @@ void lru_gen_look_around(struct page_vma_mapped_walk *pvmw)
 			continue;
 
 		if (page_memcg_rcu(page) != memcg)
+			continue;
+
+		/* File VMAs can contain anonymous pages from COW. */
+		if (!can_swap && !page_is_file_cache(page))
 			continue;
 
 		if (!ptep_test_and_clear_young(pvmw->vma, addr, pte + i))
