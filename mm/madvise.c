@@ -330,6 +330,7 @@ static int madvise_cold_or_pageout_pte_range(pmd_t *pmd,
 	pte_t *orig_pte, *pte, ptent;
 	spinlock_t *ptl;
 	struct page *page = NULL;
+	unsigned int batch_count;
 	LIST_HEAD(page_list);
 
 	if (fatal_signal_pending(current))
@@ -406,10 +407,23 @@ regular_page:
 		return 0;
 #endif
 	tlb_change_page_size(tlb, PAGE_SIZE);
+restart:
+	batch_count = 0;
 	orig_pte = pte = pte_offset_map_lock(vma->vm_mm, pmd, addr, &ptl);
 	flush_tlb_batched_pending(mm);
 	arch_enter_lazy_mmu_mode();
 	for (; addr < end; pte++, addr += PAGE_SIZE) {
+		if (batch_count == SWAP_CLUSTER_MAX) {
+			batch_count = 0;
+			if (need_resched()) {
+				arch_leave_lazy_mmu_mode();
+				pte_unmap_unlock(orig_pte, ptl);
+				cond_resched();
+				goto restart;
+			}
+		}
+		batch_count++;
+
 		ptent = *pte;
 
 		if (pte_none(ptent))
@@ -427,6 +441,8 @@ regular_page:
 		 * are sure it's worth. Split it if we are only owner.
 		 */
 		if (PageTransCompound(page)) {
+			int err;
+
 			if (page_mapcount(page) != 1)
 				break;
 			get_page(page);
@@ -434,19 +450,14 @@ regular_page:
 				put_page(page);
 				break;
 			}
+			arch_leave_lazy_mmu_mode();
 			pte_unmap_unlock(orig_pte, ptl);
-			if (split_huge_page(page)) {
-				unlock_page(page);
-				put_page(page);
-				pte_offset_map_lock(mm, pmd, addr, &ptl);
-				break;
-			}
+			err = split_huge_page(page);
 			unlock_page(page);
 			put_page(page);
-			pte = pte_offset_map_lock(mm, pmd, addr, &ptl);
-			pte--;
-			addr -= PAGE_SIZE;
-			continue;
+			if (err)
+				goto reclaim;
+			goto restart;
 		}
 
 		/*
@@ -487,6 +498,7 @@ regular_page:
 
 	arch_leave_lazy_mmu_mode();
 	pte_unmap_unlock(orig_pte, ptl);
+reclaim:
 	if (pageout)
 		reclaim_pages(&page_list);
 	cond_resched();
