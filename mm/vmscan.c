@@ -4009,6 +4009,10 @@ void lru_gen_look_around(struct page_vma_mapped_walk *pvmw)
 	lockdep_assert_held(pvmw->ptl);
 	VM_BUG_ON_PAGE(PageLRU(pvmw->page), pvmw->page);
 
+	/* Special VMAs can contain anonymous pages from COW. */
+	if (pvmw->vma->vm_flags & VM_SPECIAL)
+		return;
+
 	if (spin_is_contended(pvmw->ptl))
 		return;
 
