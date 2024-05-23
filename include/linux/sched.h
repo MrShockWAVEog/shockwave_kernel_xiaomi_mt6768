@@ -465,6 +465,7 @@ struct sched_entity {
 	unsigned int			on_rq;
 	u8				custom_slice;
 	u8				rel_deadline;
+	u8				sched_delayed;
 
 	u64				exec_start;
 	u64				sum_exec_runtime;

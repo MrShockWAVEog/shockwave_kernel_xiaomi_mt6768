@@ -1715,6 +1715,8 @@ extern const u32		sched_prio_to_wmult[40];
 #define DEQUEUE_SAVE		0x02 /* Matches ENQUEUE_RESTORE */
 #define DEQUEUE_MOVE		0x04 /* Matches ENQUEUE_MOVE */
 #define DEQUEUE_NOCLOCK		0x08 /* Matches ENQUEUE_NOCLOCK */
+#define DEQUEUE_DELAYED		0x200
+#define DEQUEUE_SPECIAL		0x400
 
 #define ENQUEUE_WAKEUP		0x01
 #define ENQUEUE_RESTORE		0x02
@@ -1724,6 +1726,7 @@ extern const u32		sched_prio_to_wmult[40];
 #define ENQUEUE_HEAD		0x10
 #define ENQUEUE_REPLENISH	0x20
 #define ENQUEUE_INITIAL		0x80
+#define ENQUEUE_DELAYED		0x200
 #ifdef CONFIG_SMP
 #define ENQUEUE_MIGRATED	0x40
 #else
@@ -1740,7 +1743,7 @@ struct sched_class {
 #endif
 
 	void (*enqueue_task) (struct rq *rq, struct task_struct *p, int flags);
-	void (*dequeue_task) (struct rq *rq, struct task_struct *p, int flags);
+	bool (*dequeue_task) (struct rq *rq, struct task_struct *p, int flags);
 	void (*yield_task)   (struct rq *rq);
 	bool (*yield_to_task)(struct rq *rq, struct task_struct *p, bool preempt);
 
@@ -1969,6 +1972,8 @@ static inline void sub_nr_running(struct rq *rq, unsigned count)
 
 extern void activate_task(struct rq *rq, struct task_struct *p, int flags);
 extern void deactivate_task(struct rq *rq, struct task_struct *p, int flags);
+extern void sched_complete_block(struct rq *rq, struct task_struct *p);
+extern void sched_finish_delayed(struct rq *rq, struct task_struct *p);
 
 extern void check_preempt_curr(struct rq *rq, struct task_struct *p, int flags);
 
