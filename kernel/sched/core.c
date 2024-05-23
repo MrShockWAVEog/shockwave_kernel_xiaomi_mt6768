@@ -1407,6 +1407,11 @@ static inline void enqueue_task(struct rq *rq, struct task_struct *p, int flags)
 	if (!(flags & ENQUEUE_NOCLOCK))
 		update_rq_clock(rq);
 
+	if (p->se.sched_delayed && !(flags & ENQUEUE_DELAYED)) {
+		p->sched_class->enqueue_task(rq, p, flags);
+		return;
+	}
+
 	if (!(flags & ENQUEUE_RESTORE)) {
 		sched_info_queued(rq, p);
 		psi_enqueue(p, flags & ENQUEUE_WAKEUP);
@@ -1416,10 +1421,13 @@ static inline void enqueue_task(struct rq *rq, struct task_struct *p, int flags)
 	p->sched_class->enqueue_task(rq, p, flags);
 }
 
-static inline void dequeue_task(struct rq *rq, struct task_struct *p, int flags)
+static inline bool dequeue_task(struct rq *rq, struct task_struct *p, int flags)
 {
 	if (!(flags & DEQUEUE_NOCLOCK))
 		update_rq_clock(rq);
+
+	if (p->se.sched_delayed)
+		return p->sched_class->dequeue_task(rq, p, flags);
 
 	if (!(flags & DEQUEUE_SAVE)) {
 		sched_info_dequeued(rq, p);
@@ -1427,7 +1435,7 @@ static inline void dequeue_task(struct rq *rq, struct task_struct *p, int flags)
 	}
 
 	uclamp_rq_dec(rq, p);
-	p->sched_class->dequeue_task(rq, p, flags);
+	return p->sched_class->dequeue_task(rq, p, flags);
 }
 
 void activate_task(struct rq *rq, struct task_struct *p, int flags)
@@ -1435,7 +1443,7 @@ void activate_task(struct rq *rq, struct task_struct *p, int flags)
 	if (task_on_rq_migrating(p))
 		flags |= ENQUEUE_MIGRATED;
 
-	if (task_contributes_to_load(p))
+	if (!p->se.sched_delayed && task_contributes_to_load(p))
 		rq->nr_uninterruptible--;
 
 	enqueue_task(rq, p, flags);
@@ -1443,10 +1451,24 @@ void activate_task(struct rq *rq, struct task_struct *p, int flags)
 
 void deactivate_task(struct rq *rq, struct task_struct *p, int flags)
 {
-	if (task_contributes_to_load(p))
+	if (!p->se.sched_delayed && task_contributes_to_load(p))
 		rq->nr_uninterruptible++;
 
 	dequeue_task(rq, p, flags);
+}
+
+void sched_complete_block(struct rq *rq, struct task_struct *p)
+{
+	if (task_contributes_to_load(p))
+		rq->nr_uninterruptible++;
+
+	if (p->in_iowait) {
+		atomic_inc(&rq->nr_iowait);
+		delayacct_blkio_start(p);
+	}
+
+	/* Once published, a concurrent wakeup can migrate the task. */
+	WRITE_ONCE(p->on_rq, 0);
 }
 
 /*
@@ -2410,6 +2432,9 @@ static int ttwu_remote(struct task_struct *p, int wake_flags)
 	if (task_on_rq_queued(p)) {
 		/* check_preempt_curr() may use rq clock */
 		update_rq_clock(rq);
+		if (p->se.sched_delayed)
+			enqueue_task(rq, p, ENQUEUE_DELAYED | ENQUEUE_NOCLOCK |
+				     ENQUEUE_WAKEUP);
 		ttwu_do_wakeup(rq, p, wake_flags, &rf);
 		ret = 1;
 	}
@@ -2803,6 +2828,9 @@ static void try_to_wake_up_local(struct task_struct *p, struct rq_flags *rf)
 			atomic_dec(&rq->nr_iowait);
 		}
 		ttwu_activate(rq, p, ENQUEUE_WAKEUP | ENQUEUE_NOCLOCK);
+	} else if (p->se.sched_delayed) {
+		enqueue_task(rq, p, ENQUEUE_DELAYED | ENQUEUE_NOCLOCK |
+			     ENQUEUE_WAKEUP);
 	}
 
 	ttwu_do_wakeup(rq, p, 0, rf);
@@ -2856,6 +2884,7 @@ static void __sched_fork(unsigned long clone_flags, struct task_struct *p)
 		p->se.slice		= 0;
 	p->se.min_slice			= 0;
 	p->se.rel_deadline		= 0;
+	p->se.sched_delayed		= 0;
 	INIT_LIST_HEAD(&p->se.group_node);
 
 #ifdef CONFIG_FAIR_GROUP_SCHED
@@ -4184,13 +4213,13 @@ static void __sched notrace __schedule(bool preempt)
 		if (unlikely(signal_pending_state(prev->state, prev))) {
 			prev->state = TASK_RUNNING;
 		} else {
-			deactivate_task(rq, prev, DEQUEUE_SLEEP | DEQUEUE_NOCLOCK);
-			prev->on_rq = 0;
+			int flags = DEQUEUE_SLEEP | DEQUEUE_NOCLOCK;
 
-			if (prev->in_iowait) {
-				atomic_inc(&rq->nr_iowait);
-				delayacct_blkio_start();
-			}
+			if (!(prev->state & TASK_NORMAL) ||
+			    prev->flags & (PF_EXITING | PF_WQ_WORKER))
+				flags |= DEQUEUE_SPECIAL;
+			if (dequeue_task(rq, prev, flags))
+				sched_complete_block(rq, prev);
 
 			/*
 			 * If a worker went to sleep, notify and ask workqueue
@@ -4560,6 +4589,8 @@ void rt_mutex_setprio(struct task_struct *p, struct task_struct *pi_task)
 	}
 
 	trace_sched_pi_setprio(p, pi_task);
+	if (p->se.sched_delayed)
+		sched_finish_delayed(rq, p);
 	oldprio = p->prio;
 
 	if (oldprio == prio)
@@ -5101,6 +5132,9 @@ change:
 		task_rq_unlock(rq, p, &rf);
 		return -EBUSY;
 	}
+
+	if (p->se.sched_delayed)
+		sched_finish_delayed(rq, p);
 
 	p->sched_reset_on_fork = reset_on_fork;
 	oldprio = p->prio;
