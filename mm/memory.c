@@ -2891,6 +2891,8 @@ static void lru_gen_swap_refault(struct page *page, swp_entry_t entry)
 }
 #endif
 
+static DECLARE_WAIT_QUEUE_HEAD(swapcache_wq);
+
 /*
  * We enter with non-exclusive mmap_sem (to exclude vma changes,
  * but allow concurrent faults), and pte mapped but not yet locked.
@@ -2971,8 +2973,13 @@ vm_fault_t do_swap_page(struct vm_fault *vmf)
 			pte_unmap_unlock(vmf->pte, vmf->ptl);
 			if (!need_clear_cache) {
 				delayacct_clear_flag(DELAYACCT_PF_SWAPIN);
-				if (err == -EEXIST)
+				if (err == -EEXIST) {
+					DECLARE_WAITQUEUE(wait, current);
+
+					add_wait_queue(&swapcache_wq, &wait);
 					schedule_timeout_uninterruptible(1);
+					remove_wait_queue(&swapcache_wq, &wait);
+				}
 				goto out;
 			}
 
@@ -3131,8 +3138,12 @@ vm_fault_t do_swap_page(struct vm_fault *vmf)
 unlock:
 	pte_unmap_unlock(vmf->pte, vmf->ptl);
 out:
-	if (need_clear_cache)
+	if (need_clear_cache) {
 		swapcache_clear(si, entry);
+		/* A missed wakeup is bounded by the fault's timeout. */
+		if (waitqueue_active(&swapcache_wq))
+			wake_up(&swapcache_wq);
+	}
 	return ret;
 out_nomap:
 	mem_cgroup_cancel_charge(page, memcg, false);
