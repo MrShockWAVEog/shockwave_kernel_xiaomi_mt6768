@@ -4672,6 +4672,21 @@ set_next_entity(struct cfs_rq *cfs_rq, struct sched_entity *se)
 static bool dequeue_fair_entities(struct rq *rq, struct sched_entity *se,
 				  int flags);
 
+static bool finish_delayed_entity(struct cfs_rq *cfs_rq, struct sched_entity *se)
+{
+	struct rq *rq = rq_of(cfs_rq);
+
+	if (!se || !se->sched_delayed)
+		return false;
+
+	if (entity_is_task(se))
+		sched_finish_delayed(rq, task_of(se));
+	else
+		dequeue_fair_entities(rq, se, DEQUEUE_SLEEP | DEQUEUE_DELAYED);
+
+	return true;
+}
+
 static struct sched_entity *pick_next_entity(struct cfs_rq *cfs_rq)
 {
 	struct sched_entity *se = cfs_rq->next;
@@ -4680,16 +4695,8 @@ static struct sched_entity *pick_next_entity(struct cfs_rq *cfs_rq)
 		se = pick_eevdf(cfs_rq);
 	if (se)
 		clear_buddies(cfs_rq, se);
-	if (se && se->sched_delayed) {
-		struct rq *rq = rq_of(cfs_rq);
-
-		if (entity_is_task(se))
-			sched_finish_delayed(rq, task_of(se));
-		else
-			dequeue_fair_entities(rq, se,
-					      DEQUEUE_SLEEP | DEQUEUE_DELAYED);
+	if (finish_delayed_entity(cfs_rq, se))
 		return NULL;
-	}
 	return se;
 }
 
@@ -8261,23 +8268,31 @@ static void check_preempt_wakeup(struct rq *rq, struct task_struct *p, int wake_
 {
 	struct task_struct *curr = rq->curr;
 	struct sched_entity *se = &curr->se, *pse = &p->se;
+	struct sched_entity *next;
 	struct cfs_rq *cfs_rq;
+	bool preempt_idle;
 
-	if (unlikely(se == pse || throttled_hierarchy(cfs_rq_of(pse))))
+	/* Load balancing can enqueue a task whose dequeue is still delayed. */
+	if (unlikely(se == pse || pse->sched_delayed ||
+		     throttled_hierarchy(cfs_rq_of(pse))))
 		return;
 	if (test_tsk_need_resched(curr))
 		return;
 
-	if (unlikely(curr->policy == SCHED_IDLE) && p->policy != SCHED_IDLE) {
-		find_matching_se(&se, &pse);
+	preempt_idle = unlikely(curr->policy == SCHED_IDLE) && p->policy != SCHED_IDLE;
+	if (!preempt_idle && (p->policy != SCHED_NORMAL || !sched_feat(WAKEUP_PREEMPTION)))
+		return;
+
+	find_matching_se(&se, &pse);
+	if (pse->sched_delayed)
+		return;
+
+	if (preempt_idle) {
 		cancel_protect_slice(se);
 		resched_curr(rq);
 		return;
 	}
-	if (p->policy != SCHED_NORMAL || !sched_feat(WAKEUP_PREEMPTION))
-		return;
 
-	find_matching_se(&se, &pse);
 	cfs_rq = cfs_rq_of(se);
 	update_curr(cfs_rq);
 	if (do_preempt_short(cfs_rq, pse, se))
@@ -8286,7 +8301,12 @@ static void check_preempt_wakeup(struct rq *rq, struct task_struct *p, int wake_
 	if (do_preempt_weight(cfs_rq, pse, se))
 		cancel_protect_slice(se);
 #endif
-	if (pick_eevdf(cfs_rq) == pse)
+	/* Reevaluate eligibility after removing an eligible delayed entity. */
+	do {
+		next = pick_eevdf(cfs_rq);
+	} while (finish_delayed_entity(cfs_rq, next));
+
+	if (next == pse)
 		resched_curr(rq);
 }
 
