@@ -10636,8 +10636,10 @@ more_balance:
 			 * ->active_balance synchronizes accesses to
 			 * ->active_balance_work.  Once set, it's cleared
 			 * only after active load balance is finished.
+			 * The current task may be in the middle of scheduling
+			 * out after dropping the runqueue lock.
 			 */
-			if (!busiest->active_balance) {
+			if (!busiest->active_balance && busiest->curr->on_rq) {
 				busiest->active_balance = 1;
 				busiest->push_cpu = this_cpu;
 				active_balance = 1;
