@@ -1284,7 +1284,6 @@ ffs_epfile_release(struct inode *inode, struct file *file)
 	/* to get updated opened atomic variable value */
 	smp_mb__before_atomic();
 	atomic_set(&epfile->opened, 0);
-	__ffs_epfile_read_buffer_free(epfile);
 	atomic_set(&epfile->error, 1);
 	ffs_data_closed(epfile->ffs);
 	file->private_data = NULL;
@@ -1977,6 +1976,7 @@ static void ffs_epfiles_destroy(struct ffs_epfile *epfiles, unsigned count)
 
 	for (; count; --count, ++epfile) {
 		BUG_ON(mutex_is_locked(&epfile->mutex));
+		__ffs_epfile_read_buffer_free(epfile);
 		if (epfile->dentry) {
 			d_delete(epfile->dentry);
 			dput(epfile->dentry);
