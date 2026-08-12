@@ -4103,14 +4103,9 @@ static bool sort_page(struct lruvec *lruvec, struct page *page, struct scan_cont
 
 	VM_BUG_ON_PAGE(gen >= MAX_NR_GENS, page);
 
-	if (!page_evictable(page)) {
-		success = lru_gen_del_page(lruvec, page, true);
-		VM_BUG_ON_PAGE(!success, page);
-		SetPageUnevictable(page);
-		add_page_to_lru_list(page, lruvec);
-		__count_vm_events(UNEVICTABLE_PGCULLED, delta);
-		return true;
-	}
+	/* The generic reclaim path puts unevictable pages back. */
+	if (!page_evictable(page))
+		return false;
 
 	if (type == LRU_GEN_FILE && PageAnon(page) && PageDirty(page)) {
 		success = lru_gen_del_page(lruvec, page, true);
@@ -4391,11 +4386,9 @@ retry:
 	sc->nr_reclaimed += reclaimed;
 
 	list_for_each_entry_safe_reverse(page, next, &list, lru) {
-		if (!page_evictable(page)) {
-			list_del(&page->lru);
-			putback_lru_page(page);
+		/* putback_inactive_pages() handles pages that became unevictable. */
+		if (!page_evictable(page))
 			continue;
-		}
 
 		if (PageReclaim(page) && (PageDirty(page) || PageWriteback(page))) {
 			/* restore LRU_REFS_FLAGS cleared by isolate_page() */
