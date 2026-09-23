@@ -193,11 +193,7 @@ static atomic_t delayed_trigger_kick = ATOMIC_INIT(0);
 static atomic_t od_trigger_kick = ATOMIC_INIT(0);
 
 /* record take mutex time */
-static unsigned long long mutex_time_start;
-static unsigned long long mutex_time_end;
-static unsigned long long mutex_time_end1;
-static long long mutex_time_period;
-static long long mutex_time_period1;
+static u64 mutex_time_start;
 
 unsigned int round_corner_offset_enable;
 #ifdef CONFIG_MTK_ROUND_CORNER_SUPPORT
@@ -266,33 +262,24 @@ void _primary_path_lock(const char *caller)
 {
 	dprec_logger_start(DPREC_LOGGER_PRIMARY_MUTEX, 0, 0);
 	disp_sw_mutex_lock(&(pgc->lock));
-	mutex_time_start = sched_clock();
+	mutex_time_start = ktime_get_ns();
 	pgc->mutex_locker = (char *)caller;
 }
 
 void _primary_path_unlock(const char *caller)
 {
-	pgc->mutex_locker = NULL;
+	u64 mutex_time_period;
 
-	mutex_time_end = sched_clock();
-	mutex_time_period = mutex_time_end - mutex_time_start;
+	pgc->mutex_locker = NULL;
+	/* Read the acquisition timestamp while this task still owns the lock. */
+	mutex_time_period = ktime_get_ns() - mutex_time_start;
 	if (mutex_time_period > 300000000) {
-		DISPCHECK("mutex_release_timeout1 <%lld ns>\n",
+		DISPCHECK("mutex_release_timeout1 <%llu ns>\n",
 			mutex_time_period);
 		dump_stack();
 	}
 
 	disp_sw_mutex_unlock(&(pgc->lock));
-
-	mutex_time_end1 = sched_clock();
-	mutex_time_period1 = mutex_time_end1 - mutex_time_start;
-	if ((mutex_time_period < 300000000 && mutex_time_period1 > 300000000) ||
-	   (mutex_time_period < 300000000 && mutex_time_period1 < 0)) {
-		DISPCHECK("mutex_release_timeout2 <%lld ns>,<%lld ns>\n",
-			mutex_time_period1, mutex_time_period);
-		dump_stack();
-	}
-
 	dprec_logger_done(DPREC_LOGGER_PRIMARY_MUTEX, 0, 0);
 }
 
