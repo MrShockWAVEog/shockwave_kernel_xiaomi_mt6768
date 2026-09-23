@@ -345,11 +345,11 @@ static int ti_lmu_backlight_update_brightness_register(struct ti_lmu_bl *lmu_bl,
 					 brightness);
 		if (ret)
 			return ret;
-		pr_err("[bkl][after]11bit %s brightness = %d\n", __func__, brightness);
+		pr_debug("[bkl][after]11bit %s brightness = %d\n", __func__, brightness);
 		val = (brightness >> LMU_BACKLIGHT_11BIT_MSB_SHIFT) & 0xFF;
 	} else {
 		val = brightness & 0xFF;
-		pr_err("[bkl]8bit %s val = %d\n", __func__, val);
+		pr_debug("[bkl]8bit %s val = %d\n", __func__, val);
 	}
 
 	reg = reginfo->brightness_msb[lmu_bl->bank_id];
@@ -379,7 +379,7 @@ static int ti_lmu_backlight_set_brightness(int brightness)
 
 int lm3697_set_brightness(int brightness, int div)
 {
-	printk(KERN_INFO "[bkl][before]%s brightness = %d, div = %d\n", __func__, brightness, div);
+	pr_debug("[bkl][before]%s brightness = %d, div = %d\n", __func__, brightness, div);
 	//return ti_lmu_backlight_update_brightness_register(bl_chip->lmu_bl, brightness);
 
 #ifdef CONFIG_TARGET_PRODUCT_MERLIN
