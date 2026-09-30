@@ -130,8 +130,7 @@ static void device_create_release(struct device *dev)
 	kfree(dev);
 }
 
-static struct device *wakeup_source_device_create(struct device *parent,
-						  struct wakeup_source *ws)
+static struct device *wakeup_source_device_create(struct wakeup_source *ws)
 {
 	struct device *dev = NULL;
 	int retval = -ENODEV;
@@ -145,7 +144,11 @@ static struct device *wakeup_source_device_create(struct device *parent,
 	device_initialize(dev);
 	dev->devt = MKDEV(0, 0);
 	dev->class = wakeup_class;
-	dev->parent = parent;
+	/*
+	 * Keep statistics in /sys/devices/virtual/wakeup so Android can label
+	 * all wakeup sources consistently. Hardware parents may carry labels
+	 * such as sysfs_fingerprint that the suspend service cannot read.
+	 */
 	dev->groups = wakeup_source_groups;
 	dev->release = device_create_release;
 	dev_set_drvdata(dev, ws);
@@ -168,14 +171,14 @@ error:
 
 /**
  * wakeup_source_sysfs_add - Add wakeup_source attributes to sysfs.
- * @parent: Device given wakeup source is associated with (or NULL if virtual).
+ * @parent: Associated hardware device; statistics are always virtual.
  * @ws: Wakeup source to be added in sysfs.
  */
 int wakeup_source_sysfs_add(struct device *parent, struct wakeup_source *ws)
 {
 	struct device *dev;
 
-	dev = wakeup_source_device_create(parent, ws);
+	dev = wakeup_source_device_create(ws);
 	if (IS_ERR(dev))
 		return PTR_ERR(dev);
 	ws->dev = dev;
