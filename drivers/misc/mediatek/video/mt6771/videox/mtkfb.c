@@ -361,7 +361,7 @@ struct fb_info *mtkfb_get_fb_info(void)
 EXPORT_SYMBOL(mtkfb_get_fb_info);
 #endif
 
-int mtkfb_set_backlight_level(unsigned int level)
+int mtkfb_set_backlight_level(int level, int div)
 {
 	MTKFB_FUNC();
 	DISPDBG("%s:%d Start\n",
