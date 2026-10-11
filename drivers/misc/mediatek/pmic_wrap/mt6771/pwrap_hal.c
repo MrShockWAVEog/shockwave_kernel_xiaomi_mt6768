@@ -5,8 +5,6 @@
 /******************************************************************************
  * MTK PMIC Wrapper Driver
  *
- * Copyright 2018 MediaTek Co.,Ltd.
- *
  * DESCRIPTION:
  *     This file provides API for other drivers to access PMIC registers
  *
