@@ -57,7 +57,7 @@ static int ppm_cpu_freq_callback(struct notifier_block *nb,
 {
 	struct ppm_cluster_status cl_status[NR_PPM_CLUSTERS];
 	struct cpufreq_freqs *freq = data;
-	int cpu = freq->cpu;
+	int cpu = freq->policy->cpu;
 	int i, is_root_cpu = 0;
 
 	if (freq->flags & CPUFREQ_CONST_LOOPS)
