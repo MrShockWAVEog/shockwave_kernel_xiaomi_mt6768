@@ -391,7 +391,7 @@ int mt6768_afe_dram_request(struct device *dev)
 	struct mtk_base_afe *afe = dev_get_drvdata(dev);
 	struct mt6768_afe_private *afe_priv = afe->platform_priv;
 
-	dev_info(dev, "%s(), dram_resource_counter %d\n",
+	dev_dbg(dev, "%s(), dram_resource_counter %d\n",
 		 __func__, afe_priv->dram_resource_counter);
 
 	mutex_lock(&mutex_request_dram);
@@ -409,7 +409,7 @@ int mt6768_afe_dram_release(struct device *dev)
 	struct mtk_base_afe *afe = dev_get_drvdata(dev);
 	struct mt6768_afe_private *afe_priv = afe->platform_priv;
 
-	dev_info(dev, "%s(), dram_resource_counter %d\n",
+	dev_dbg(dev, "%s(), dram_resource_counter %d\n",
 		 __func__, afe_priv->dram_resource_counter);
 
 	mutex_lock(&mutex_request_dram);

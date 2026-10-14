@@ -2060,7 +2060,7 @@ static int smb1351_enable_charging(struct charger_device *chg_dev, bool en)
 	u8 reg = 0, mask = 0;
 	struct smb1351_charger *chip = dev_get_drvdata(&chg_dev->dev);
 
-	pr_err("smb1351 enable status = %d\n", en);
+	pr_debug("smb1351 enable status = %d\n", en);
 	// if (!chip->chip_enable && en) {
 	// 	pr_err("chip is not enable, return.\n");
 	// 	return 0;
@@ -2280,7 +2280,7 @@ static int smb1351_set_usbchg_current(struct charger_device *chg_dev, u32 uA)
 	u8 reg = 0, mask = 0;
 	u32 current_ma = uA / 1000;
 
-	pr_err("USB current_ma = %d\n", current_ma);
+	pr_debug("USB current_ma = %d\n", current_ma);
 
 	if (chip->chg_autonomous_mode) {
 		pr_debug("Charger in autonomous mode\n");
@@ -2318,7 +2318,7 @@ static int smb1351_set_usbchg_current(struct charger_device *chg_dev, u32 uA)
 				break;
 		}
 /* Huaqin add for K19AFAC-33 by wangqi at 2021/6/13 start */
-		pr_err("set i:%d\n", i);
+		pr_debug("set i:%d\n", i);
 		if (i < 2)
 			i = 0;
 /* Huaqin add for K19AFAC-33 by wangqi at 2021/6/13 end */
@@ -2381,7 +2381,7 @@ static int smb1351_set_fastchg_current(struct charger_device *chg_dev, u32 uA)
 
 	chip->chg_current_set = uA / 1000;
 
-	pr_err("fastchg current mA=%d \n", chip->chg_current_set);
+	pr_debug("fastchg current mA=%d\n", chip->chg_current_set);
 
 	if ((chip->chg_current_set < SMB1351_CHG_PRE_MIN_MA) ||
 		(chip->chg_current_set > SMB1351_CHG_FAST_MAX_MA)) {
@@ -2785,7 +2785,7 @@ static int smb1351_set_float_voltage(struct charger_device *chg_dev, u32 uV)
 		uV = float_max;
 	}
 
-	pr_err("set float voltage %d cycle_count : %d", uV, cycle_count);
+	pr_debug("set float voltage %d cycle_count : %d", uV, cycle_count);
 
 	rc = smb1351_enable_volatile_writes(chip);
 	if (rc) {

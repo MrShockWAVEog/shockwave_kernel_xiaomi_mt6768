@@ -1001,7 +1001,7 @@ static int dl_pga_set(struct snd_kcontrol *kcontrol,
 	unsigned int id = kcontrol->id.device;
 	int array_size, reg_minus_40db;
 
-	dev_info(priv->dev, "%s(), id %d, index %d\n", __func__, id, index);
+	dev_dbg(priv->dev, "%s(), id %d, index %d\n", __func__, id, index);
 
 	array_size = ARRAY_SIZE(dl_pga_gain);
 	reg_minus_40db = PGA_MINUS_40_DB_REG_VAL;
@@ -1104,7 +1104,7 @@ static int ul_pga_set(struct snd_kcontrol *kcontrol,
 	int index = ucontrol->value.integer.value[0];
 	unsigned int id = kcontrol->id.device;
 
-	dev_info(priv->dev, "%s(), id %d, index %d\n", __func__, id, index);
+	dev_dbg(priv->dev, "%s(), id %d, index %d\n", __func__, id, index);
 	if (index > ARRAY_SIZE(ul_pga_gain)) {
 		dev_warn(priv->dev, "return -EINVAL\n");
 		return -EINVAL;

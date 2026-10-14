@@ -129,7 +129,7 @@ int mt6768_fe_trigger(struct snd_pcm_substream *substream, int cmd,
 	int fs;
 	int ret = 0;
 
-	dev_info(afe->dev, "%s(), %s cmd %d, irq_id %d\n",
+	dev_dbg(afe->dev, "%s(), %s cmd %d, irq_id %d\n",
 		 __func__, memif->data->name, cmd, irq_id);
 
 	switch (cmd) {

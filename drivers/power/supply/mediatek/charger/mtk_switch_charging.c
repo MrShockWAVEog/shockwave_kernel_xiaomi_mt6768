@@ -309,7 +309,7 @@ static void swchg_select_charging_current_limit(struct charger_manager *info)
 
 		if (pdata->charging_current_limit > info->sw_jeita.cc)
 			pdata->charging_current_limit = info->sw_jeita.cc;
-		pr_err("dhx---jeita_cc : %d\n", info->sw_jeita.cc);
+		pr_debug("dhx---jeita_cc : %d\n", info->sw_jeita.cc);
 	}
 
 	// if (pdata->thermal_charging_current_limit != -1) {
@@ -425,7 +425,7 @@ static void swchg_select_cv(struct charger_manager *info)
 	/* dynamic cv*/
 	constant_voltage = info->data.battery_cv;
 	mtk_get_dynamic_cv(info, &constant_voltage);
-	pr_err("dhx--set constant_voltage:%d\n", constant_voltage);
+	pr_debug("dhx--set constant_voltage:%d\n", constant_voltage);
 	charger_dev_set_constant_voltage(info->chg1_dev, constant_voltage);
 }
 

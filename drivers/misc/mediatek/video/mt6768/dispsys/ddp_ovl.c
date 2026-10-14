@@ -538,7 +538,7 @@ static int ovl_layer_config(enum DISP_MODULE_ENUM module, unsigned int layer,
 	/* check dim layer fmt */
 	if (cfg->source == OVL_LAYER_SOURCE_RESERVED) {
 		if (cfg->aen == 0)
-			DDPERR("dim layer%d ahpha enable should be 1!\n",
+			pr_err_ratelimited("[DDP/OVL] dim layer%d alpha enable should be 1!\n",
 				layer);
 		format = UFMT_RGB888;
 	}
