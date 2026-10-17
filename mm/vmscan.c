@@ -2631,7 +2631,7 @@ static struct lruvec *get_lruvec(struct mem_cgroup *memcg, int nid)
 #endif
 	VM_BUG_ON(!mem_cgroup_disabled());
 
-	return pgdat ? &pgdat->lruvec : NULL;
+	return pgdat ? mem_cgroup_lruvec(pgdat, NULL) : NULL;
 }
 
 static int get_swappiness(struct lruvec *lruvec, struct scan_control *sc)
