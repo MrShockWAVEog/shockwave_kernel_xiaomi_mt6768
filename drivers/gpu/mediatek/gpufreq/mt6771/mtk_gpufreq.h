@@ -53,13 +53,6 @@ extern void mt_gpufreq_disable_MTCMOS(void);
 extern void mt_gpufreq_dump_reg(void);
 extern void mt_gpufreq_dump_status(void);
 
-#ifdef CONFIG_MTK_RAM_CONSOLE
-extern void aee_rr_rec_gpu_dvfs_vgpu(u8 val);
-extern void aee_rr_rec_gpu_dvfs_oppidx(u8 val);
-extern void aee_rr_rec_gpu_dvfs_status(u8 val);
-extern u8 aee_rr_curr_gpu_dvfs_status(void);
-#endif /* CONFIG_MTK_RAM_CONSOLE */
-
 /*****************
  * power limit notification
  ******************/
