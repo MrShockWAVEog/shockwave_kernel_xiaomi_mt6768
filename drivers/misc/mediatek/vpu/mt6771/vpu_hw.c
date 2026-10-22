@@ -26,6 +26,8 @@
 #include <smi_public.h>
 #endif
 #include "mtk_devinfo.h"
+#include <linux/arm-smccc.h>
+#include <mt-plat/mtk_secure_api.h>
 
 
 #ifdef MMDVFS
@@ -3697,8 +3699,14 @@ int vpu_debug_func_core_state(int core, enum VpuCoreState state)
 	return 0;
 }
 
+enum MTK_APUSYS_KERNEL_OP {
+	MTK_VPU_SMC_INIT = 0,
+	MTK_APUSYS_KERNEL_OP_NUM
+};
+
 int vpu_boot_up(int core, bool secure)
 {
+	struct arm_smccc_res res;
 	int ret = 0;
 
 	LOG_DBG("[vpu_%d] boot_up +\n", core);
@@ -3740,6 +3748,8 @@ int vpu_boot_up(int core, bool secure)
 		goto out;
 	}
 	if (!secure) {
+		arm_smccc_smc(MTK_SIP_APUSYS_CONTROL, MTK_VPU_SMC_INIT,
+			      0, 0, 0, 0, 0, 0, &res);
 		ret = vpu_hw_boot_sequence(core);
 		if (ret) {
 			LOG_ERR("[vpu_%d]fail to do boot sequence\n", core);
