@@ -1,0 +1,35 @@
+/* SPDX-License-Identifier: GPL-2.0 */
+/*
+ * Copyright (C) 2016 MediaTek Inc.
+ */
+
+#include "mt6771.dts"
+
+/ {
+	model = "mt8183";
+	compatible = "mediatek,mt8183", "mediatek,mt6771";
+};
+
+&chosen {
+	bootargs = "console=tty0 console=ttyS0,921600n1 \
+vmalloc=400M slub_debug=OFZPU swiotlb=noforce page_owner=on \
+cgroup.memory=nosocket,nokmem \
+androidboot.hardware=mt8183 \
+firmware_class.path=/vendor/firmware loop.max_part=7 clk_ignore_unused";
+};
+
+&ccifdriver {
+	status = "disabled";
+};
+
+&cldmadriver {
+	status = "disabled";
+};
+
+&mddriver {
+	status = "disabled";
+};
+
+&md_auxadc {
+	status = "disabled";
+};
