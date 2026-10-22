@@ -1699,9 +1699,15 @@ static const struct mtk_gate ipu_conn_clks[] = {
 };
 
 static const struct mtk_gate_regs ipu_adl_cg_regs = {
+#ifdef CONFIG_MACH_MT8183
+	.set_ofs = 0x204,
+	.clr_ofs = 0x204,
+	.sta_ofs = 0x204,
+#else
 	.set_ofs = 0x0,
 	.clr_ofs = 0x0,
 	.sta_ofs = 0x0,
+#endif
 };
 
 #define GATE_IPU_ADL(_id, _name, _parent, _shift) {	\
