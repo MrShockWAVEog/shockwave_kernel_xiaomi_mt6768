@@ -180,7 +180,7 @@ void msdc_dump_ldo_sts(char **buff, unsigned long *size,
 #endif /* POWER_READY */
 }
 
-void msdc_sd_power_switch(struct msdc_host *host, u32 on)
+int msdc_sd_power_switch(struct msdc_host *host, u32 on)
 {
 #ifdef POWER_READY
 	if (host->id == 1) {
@@ -196,6 +196,7 @@ void msdc_sd_power_switch(struct msdc_host *host, u32 on)
 		msdc_set_driving(host, host->hw->driving_applied);
 	}
 #endif /* POWER_READY */
+	return 0;
 }
 
 void msdc_sdio_power(struct msdc_host *host, u32 on)
@@ -1172,7 +1173,6 @@ int msdc_of_parse(struct platform_device *pdev, struct mmc_host *mmc)
 	int ret = 0;
 	int len = 0;
 	u8 hw_dvfs_support, id;
-	int boot_type;
 
 	np = mmc->parent->of_node; /* mmcx node in project dts */
 
@@ -1181,11 +1181,6 @@ int msdc_of_parse(struct platform_device *pdev, struct mmc_host *mmc)
 			pdev->dev.of_node->name);
 		return -1;
 	}
-
-	/* Add get_boot_type check and return ENODEV if not eMMC boot */
-	boot_type = get_boot_type();
-	if ((boot_type != BOOTDEV_SDMMC) && (id == 0))
-		return -ENODEV;
 
 	host->id = id;
 	pdev->id = id;
