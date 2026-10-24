@@ -278,7 +278,7 @@ static long _map_user_pages(struct MTIOMMU_PIN_RANGE_T *pinRange,
 	gup_flags = (control == 0) ? FOLL_WRITE  : 0;
 
 	/* Try to fault in all of the necessary pages */
-	down_read(&current->mm->mmap_sem);
+	mmap_read_lock(current->mm);
 	vma = find_vma_intersection(current->mm, uaddr, uaddr+size);
 	if (!vma) {
 		res = -EFAULT;
@@ -320,7 +320,7 @@ static long _map_user_pages(struct MTIOMMU_PIN_RANGE_T *pinRange,
 		} while (vma && vma->vm_flags & (VM_IO | VM_PFNMAP));
 	}
  out:
-	up_read(&current->mm->mmap_sem);
+	mmap_read_unlock(current->mm);
 	if (res < 0) {
 		pr_warn("%s error = %d\n", __func__, res);
 		goto out_free;
@@ -663,12 +663,13 @@ static KREE_SESSION_HANDLE tz_client_open_session_impl(int with_tag,
 		return -EFAULT;
 
 	/* Check if can we access UUID string. 10 for min uuid len. */
-	if (!access_ok(VERIFY_READ, pparam->data, 10))
+	if (!access_ok(VERIFY_READ, (void __user *)(unsigned long)pparam->data, 10))
 		return -EFAULT;
 
 	if (with_tag != 0 && pparam->tag != 0) {
 		/* Check if can we access tag string. */
-		if (!access_ok(VERIFY_READ, pparam->tag, pparam->tag_size))
+		if (!access_ok(VERIFY_READ, (void __user *)(unsigned long)pparam->tag,
+			       pparam->tag_size))
 			return -EFAULT;
 
 		len = strncpy_from_user(tag,
@@ -802,7 +803,8 @@ static long tz_client_tee_service(struct file *file, unsigned long arg,
 
 	if (cparam.paramTypes != TZPT_NONE || cparam.param) {
 		/* Check if can we access param */
-		if (!access_ok(VERIFY_READ, cparam.param, sizeof(oparam)))
+		if (!access_ok(VERIFY_READ, (void __user *)(unsigned long)cparam.param,
+			       sizeof(oparam)))
 			return -EFAULT;
 
 		cret = copy_from_user(oparam,
