@@ -919,7 +919,7 @@ void spm_go_to_vcorefs(int spm_flags)
 {
 	unsigned long flags;
 
-	spm_vcorefs_warn("pcm_flag: 0x%x\n", spm_flags);
+	pr_debug(SPM_VCOREFS_TAG "pcm_flag: 0x%x\n", spm_flags);
 
 	spin_lock_irqsave(&__spm_lock, flags);
 
@@ -928,7 +928,7 @@ void spm_go_to_vcorefs(int spm_flags)
 
 	spin_unlock_irqrestore(&__spm_lock, flags);
 
-	spm_vcorefs_warn("[%s] done\n", __func__);
+	pr_debug(SPM_VCOREFS_TAG "[%s] done\n", __func__);
 }
 
 void spm_request_dvfs_opp(int id, enum dvfs_opp opp)
