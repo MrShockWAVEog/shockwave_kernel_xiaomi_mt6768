@@ -40,12 +40,19 @@
 #include <linux/init_task.h>
 #include <linux/uaccess.h>
 #include <linux/build_bug.h>
+#if defined(CONFIG_KSU_SUSFS_SUS_PATH) || defined(CONFIG_KSU_SUSFS_OPEN_REDIRECT)
+#include <linux/susfs_def.h>
+#endif
 
 #include "internal.h"
 #include "mount.h"
 
 #define CREATE_TRACE_POINTS
 #include <trace/events/namei.h>
+
+#ifdef CONFIG_KSU_SUSFS_SUS_PATH
+extern bool susfs_is_inode_sus_path(struct inode *inode);
+#endif
 
 /* [Feb-1997 T. Schoebel-Theuer]
  * Fundamental changes in the pathname lookup mechanisms (namei)
@@ -496,6 +503,9 @@ struct nameidata {
 	struct path	root;
 	struct inode	*inode; /* path.dentry.d_inode */
 	unsigned int	flags;
+#ifdef CONFIG_KSU_SUSFS_SUS_PATH
+	unsigned int	state;
+#endif
 	unsigned	seq, m_seq;
 	int		last_type;
 	unsigned	depth;
@@ -522,6 +532,9 @@ static void set_nameidata(struct nameidata *p, int dfd, struct filename *name)
 	p->total_link_count = old ? old->total_link_count : 0;
 	p->saved = old;
 	current->nameidata = p;
+#ifdef CONFIG_KSU_SUSFS_SUS_PATH
+	p->state = 0;
+#endif
 }
 
 static void restore_nameidata(void)
@@ -1600,6 +1613,12 @@ static struct dentry *lookup_dcache(const struct qstr *name,
 			return ERR_PTR(error);
 		}
 	}
+#ifdef CONFIG_KSU_SUSFS_SUS_PATH
+	if (dentry && !IS_ERR(dentry) && dentry->d_inode && susfs_is_inode_sus_path(dentry->d_inode)) {
+		dput(dentry);
+		return ERR_PTR(-ENOENT);
+	}
+#endif
 	return dentry;
 }
 
@@ -1633,6 +1652,13 @@ static struct dentry *__lookup_hash(const struct qstr *name,
 		dput(dentry);
 		dentry = old;
 	}
+#ifdef CONFIG_KSU_SUSFS_SUS_PATH
+	if (dentry && !IS_ERR(dentry) && dentry->d_inode &&
+		susfs_is_inode_sus_path(dentry->d_inode)) {
+		dput(dentry);
+		return ERR_PTR(-ENOENT);
+	}
+#endif
 	return dentry;
 }
 
@@ -1643,6 +1669,9 @@ static int lookup_fast(struct nameidata *nd,
 	struct vfsmount *mnt = nd->path.mnt;
 	struct dentry *dentry, *parent = nd->path.dentry;
 	int status = 1;
+#ifdef CONFIG_KSU_SUSFS_SUS_PATH
+	bool is_nd_state_lookup_last_and_open_last = (nd->state & (ND_STATE_LOOKUP_LAST | ND_STATE_OPEN_LAST));
+#endif
 	int err;
 
 	/*
@@ -1654,6 +1683,13 @@ static int lookup_fast(struct nameidata *nd,
 		unsigned seq;
 		bool negative;
 		dentry = __d_lookup_rcu(parent, &nd->last, &seq);
+#ifdef CONFIG_KSU_SUSFS_SUS_PATH
+		if (is_nd_state_lookup_last_and_open_last && dentry && !IS_ERR(dentry) && dentry->d_inode &&
+			susfs_is_inode_sus_path(dentry->d_inode))
+		{
+			return -ECHILD;
+		}
+#endif
 		if (unlikely(!dentry)) {
 			if (unlazy_walk(nd))
 				return -ECHILD;
@@ -1700,6 +1736,14 @@ static int lookup_fast(struct nameidata *nd,
 			status = d_revalidate(dentry, nd->flags);
 	} else {
 		dentry = __d_lookup(parent, &nd->last);
+#ifdef CONFIG_KSU_SUSFS_SUS_PATH
+		if (is_nd_state_lookup_last_and_open_last && dentry && !IS_ERR(dentry) && dentry->d_inode &&
+			susfs_is_inode_sus_path(dentry->d_inode))
+		{
+			dput(dentry);
+			return -ENOENT;
+		}
+#endif
 		if (unlikely(!dentry))
 			return 0;
 		status = d_revalidate(dentry, nd->flags);
@@ -1760,6 +1804,13 @@ again:
 			dentry = old;
 		}
 	}
+#ifdef CONFIG_KSU_SUSFS_SUS_PATH
+	if (dentry && !IS_ERR(dentry) && dentry->d_inode &&
+		susfs_is_inode_sus_path(dentry->d_inode)) {
+		dput(dentry);
+		return ERR_PTR(-ENOENT);
+	}
+#endif
 	return dentry;
 }
 
@@ -1892,6 +1943,11 @@ static int walk_component(struct nameidata *nd, int flags)
 	if (unlikely(err <= 0)) {
 		if (err < 0)
 			return err;
+#ifdef CONFIG_KSU_SUSFS_SUS_PATH
+		if (nd->state & ND_STATE_LOOKUP_LAST) {
+			nd->flags |= ND_FLAGS_LOOKUP_LAST;
+		}
+#endif
 		path.dentry = lookup_slow(&nd->last, nd->path.dentry,
 					  nd->flags);
 		if (IS_ERR(path.dentry))
@@ -2170,6 +2226,17 @@ static int link_path_walk(const char *name, struct nameidata *nd)
 		if (err)
 			return err;
 
+#ifdef CONFIG_KSU_SUSFS_SUS_PATH
+		{
+			struct dentry *dentry = nd->path.dentry;
+			if (dentry->d_inode && susfs_is_inode_sus_path(dentry->d_inode)) {
+				// - No need to dput() here
+				// - return -ENOENT here since it is walking the sub path of sus path
+				return -ENOENT;
+			}
+		}
+#endif
+
 		hash_len = hash_name(nd->path.dentry, name);
 
 		type = LAST_NORM;
@@ -2353,6 +2420,9 @@ static inline int lookup_last(struct nameidata *nd)
 {
 	if (nd->last_type == LAST_NORM && nd->last.name[nd->last.len])
 		nd->flags |= LOOKUP_FOLLOW | LOOKUP_DIRECTORY;
+#ifdef CONFIG_KSU_SUSFS_SUS_PATH
+	nd->state |= ND_STATE_LOOKUP_LAST;
+#endif
 
 	nd->flags &= ~LOOKUP_PARENT;
 	return walk_component(nd, 0);
@@ -3241,12 +3311,23 @@ static int lookup_open(struct nameidata *nd, struct path *path,
 	int error, create_error = 0;
 	umode_t mode = op->mode;
 	DECLARE_WAIT_QUEUE_HEAD_ONSTACK(wq);
+#ifdef CONFIG_KSU_SUSFS_SUS_PATH
+	bool is_nd_state_open_last = (nd->state & ND_STATE_OPEN_LAST);
+#endif
 
 	if (unlikely(IS_DEADDIR(dir_inode)))
 		return -ENOENT;
 
 	file->f_mode &= ~FMODE_CREATED;
 	dentry = d_lookup(dir, &nd->last);
+#ifdef CONFIG_KSU_SUSFS_SUS_PATH
+	if (is_nd_state_open_last && dentry && !IS_ERR(dentry) && dentry->d_inode &&
+		susfs_is_inode_sus_path(dentry->d_inode))
+	{
+		dput(dentry);
+		return -ENOENT;
+	}
+#endif
 	for (;;) {
 		if (!dentry) {
 			dentry = d_alloc_parallel(dir, &nd->last, &wq);
@@ -3305,7 +3386,11 @@ static int lookup_open(struct nameidata *nd, struct path *path,
 		goto no_open;
 	}
 
-	if (dir_inode->i_op->atomic_open) {
+	if (dir_inode->i_op->atomic_open
+#ifdef CONFIG_KSU_SUSFS_SUS_PATH
+	    && !susfs_is_current_proc_umounted_app()
+#endif
+	   ) {
 		error = atomic_open(nd, dentry, path, file, op, open_flag,
 				    mode);
 		if (unlikely(error == -ENOENT) && create_error)
@@ -3347,6 +3432,12 @@ no_open:
 		goto out_dput;
 	}
 out_no_open:
+#ifdef CONFIG_KSU_SUSFS_SUS_PATH
+	if (dentry->d_inode && susfs_is_inode_sus_path(dentry->d_inode)) {
+		error = -ENOENT;
+		goto out_dput;
+	}
+#endif
 	path->dentry = dentry;
 	path->mnt = nd->path.mnt;
 	return 0;
@@ -3373,6 +3464,10 @@ static int do_last(struct nameidata *nd,
 	struct inode *inode;
 	struct path path;
 	int error;
+
+#ifdef CONFIG_KSU_SUSFS_SUS_PATH
+	nd->state |= ND_STATE_OPEN_LAST;
+#endif
 
 	nd->flags &= ~LOOKUP_PARENT;
 	nd->flags |= op->intent;
@@ -3663,12 +3758,52 @@ static struct file *path_openat(struct nameidata *nd,
 	return ERR_PTR(error);
 }
 
+#ifdef CONFIG_KSU_SUSFS_OPEN_REDIRECT
+extern int susfs_open_redirect_spoof_vfs_readlink(struct inode *inode, char __user *buffer, int buflen);
+#endif
+
+#ifdef CONFIG_KSU_SUSFS_OPEN_REDIRECT
+extern struct filename *susfs_open_redirect_spoof_do_sys_openat(struct inode *inode);
+extern struct static_key_false susfs_has_open_redirect;
+
+/* Resolve the redirect before allocating/opening a file. Never redirect writes. */
+static noinline struct filename *susfs_lookup_open_redirect(int dfd,
+		struct filename *name, const struct open_flags *op)
+{
+	struct filename *copy, *redirect = NULL;
+	struct path path;
+	int error;
+
+	if (!static_branch_unlikely(&susfs_has_open_redirect))
+		return NULL;
+	if ((op->acc_mode & MAY_WRITE) ||
+		(op->open_flag & (O_CREAT | O_TRUNC | __O_TMPFILE)))
+		return NULL;
+	copy = getname_kernel(name->name);
+	if (IS_ERR(copy))
+		return NULL;
+	error = filename_lookup(dfd, copy, op->lookup_flags, &path, NULL);
+	if (error)
+		return NULL;
+	if (SUSFS_IS_INODE_OPEN_REDIRECT_WITHOUT_UID_CHECK(d_backing_inode(path.dentry)))
+		redirect = susfs_open_redirect_spoof_do_sys_openat(d_backing_inode(path.dentry));
+	path_put(&path);
+	return IS_ERR(redirect) ? NULL : redirect;
+}
+#endif
+
 struct file *do_filp_open(int dfd, struct filename *pathname,
 		const struct open_flags *op)
 {
 	struct nameidata nd;
 	int flags = op->lookup_flags;
 	struct file *filp;
+#ifdef CONFIG_KSU_SUSFS_OPEN_REDIRECT
+	struct filename *redirect = susfs_lookup_open_redirect(dfd, pathname, op);
+
+	if (redirect)
+		pathname = redirect;
+#endif
 
 	set_nameidata(&nd, dfd, pathname);
 	filp = path_openat(&nd, op, flags | LOOKUP_RCU);
@@ -3677,6 +3812,10 @@ struct file *do_filp_open(int dfd, struct filename *pathname,
 	if (unlikely(filp == ERR_PTR(-ESTALE)))
 		filp = path_openat(&nd, op, flags | LOOKUP_REVAL);
 	restore_nameidata();
+#ifdef CONFIG_KSU_SUSFS_OPEN_REDIRECT
+	if (redirect)
+		putname(redirect);
+#endif
 	return filp;
 }
 
@@ -4830,7 +4969,18 @@ int vfs_readlink(struct dentry *dentry, char __user *buffer, int buflen)
 
 	if (unlikely(!(inode->i_opflags & IOP_DEFAULT_READLINK))) {
 		if (unlikely(inode->i_op->readlink))
+#ifdef CONFIG_KSU_SUSFS_OPEN_REDIRECT
+		{
+			if (SUSFS_IS_INODE_OPEN_REDIRECT(inode)) {
+				res = susfs_open_redirect_spoof_vfs_readlink(inode, buffer, buflen);
+				if (res >= 0 || res == -EFAULT)
+					return res;
+			}
 			return inode->i_op->readlink(dentry, buffer, buflen);
+		}
+#else
+			return inode->i_op->readlink(dentry, buffer, buflen);
+#endif
 
 		if (!d_is_symlink(dentry))
 			return -EINVAL;
@@ -4846,6 +4996,15 @@ int vfs_readlink(struct dentry *dentry, char __user *buffer, int buflen)
 		if (IS_ERR(link))
 			return PTR_ERR(link);
 	}
+#ifdef CONFIG_KSU_SUSFS_OPEN_REDIRECT
+	if (SUSFS_IS_INODE_OPEN_REDIRECT(inode)) {
+		res = susfs_open_redirect_spoof_vfs_readlink(inode, buffer, buflen);
+		if (res >= 0 || res == -EFAULT) {
+			do_delayed_call(&done);
+			return res;
+		}
+	}
+#endif
 	res = readlink_copy(buffer, buflen, link);
 	do_delayed_call(&done);
 	return res;

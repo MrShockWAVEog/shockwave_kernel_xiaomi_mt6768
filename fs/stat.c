@@ -17,9 +17,17 @@
 #include <linux/syscalls.h>
 #include <linux/pagemap.h>
 #include <linux/compat.h>
+#ifdef CONFIG_KSU_SUSFS
+#include <linux/susfs_def.h>
+#endif
 
 #include <linux/uaccess.h>
 #include <asm/unistd.h>
+
+#ifdef CONFIG_KSU_SUSFS_SUS_KSTAT
+extern bool susfs_is_inode_sus_kstat(struct inode *inode, bool *out_is_fuse);
+extern void susfs_sus_kstat_spoof_generic_fillattr(struct inode *inode, struct kstat *stat, u32 result_mask);
+#endif // #ifdef CONFIG_KSU_SUSFS_SUS_KSTAT
 
 /**
  * generic_fillattr - Fill in the basic attributes from the inode struct
@@ -75,9 +83,27 @@ int vfs_getattr_nosec(const struct path *path, struct kstat *stat,
 	stat->result_mask |= STATX_BASIC_STATS;
 	request_mask &= STATX_ALL;
 	query_flags &= KSTAT_QUERY_FLAGS;
+
+#ifdef CONFIG_KSU_SUSFS_SUS_KSTAT
+	{
+		bool is_fuse = false;
+		bool spoof = susfs_is_current_app_uid() &&
+			susfs_is_inode_sus_kstat(inode, &is_fuse);
+		int error = 0;
+
+		if (inode->i_op->getattr)
+			error = inode->i_op->getattr(path, stat, request_mask, query_flags);
+		else
+			generic_fillattr(inode, stat);
+		if (!error && spoof)
+			susfs_sus_kstat_spoof_generic_fillattr(inode, stat,
+				is_fuse ? STATX_SUS_KSTAT_FUSE : STATX_SUS_KSTAT);
+		return error;
+	}
+#else
 	if (inode->i_op->getattr)
-		return inode->i_op->getattr(path, stat, request_mask,
-					    query_flags);
+		return inode->i_op->getattr(path, stat, request_mask, query_flags);
+#endif
 
 	generic_fillattr(inode, stat);
 	return 0;
