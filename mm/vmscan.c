@@ -3533,7 +3533,7 @@ restart:
 
 		priv->mm_stats[MM_PMD_FOUND]++;
 
-		if (!walk_pte_range(&val, addr, next, walk))
+		if (!walk_pte_range(pmd + i, addr, next, walk))
 			continue;
 
 		priv->mm_stats[MM_PMD_ADDED]++;
@@ -3568,7 +3568,7 @@ restart:
 		if (!pud_present(val) || WARN_ON_ONCE(pud_trans_huge(val) || pud_devmap(val)))
 			continue;
 
-		walk_pmd_range(&val, addr, next, walk);
+		walk_pmd_range(pud + i, addr, next, walk);
 
 		if (priv->batched >= MAX_LRU_BATCH) {
 			end = (addr | ~PUD_MASK) + 1;
