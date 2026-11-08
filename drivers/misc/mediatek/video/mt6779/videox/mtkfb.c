@@ -2069,7 +2069,7 @@ static void _mtkfb_draw_block(unsigned long addr, unsigned int x,
 
 	for (j = 0; j < h; j++) {
 		for (i = 0; i < w; i++)
-			writel(color, (start_addr + i * 4 +
+			mt_reg_sync_writel(color, (start_addr + i * 4 +
 						   j * MTK_FB_XRESV * 4));
 	}
 }
