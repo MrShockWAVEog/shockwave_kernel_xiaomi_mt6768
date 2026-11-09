@@ -1142,6 +1142,13 @@ config CHECKPOINT_RESTORE
 
 	  If unsure, say N here.
 
+config SCHED_BORE
+	bool "Burst-Oriented Response Enhancer"
+	help
+	  Discriminate between fair-class tasks by the run time accumulated
+	  since each last blocked or yielded, using BORE's burst penalties
+	  and virtual deadline adjustments.
+
 config SCHED_AUTOGROUP
 	bool "Automatic process group scheduling"
 	select CGROUPS

@@ -56,3 +56,11 @@ config HZ
 
 config SCHED_HRTICK
 	def_bool HIGH_RES_TIMERS
+
+config MIN_BASE_SLICE_NS
+	int "Minimum BORE base slice (ns)"
+	depends on SCHED_BORE
+	range 1 1000000000
+	default 2000000
+	help
+	  BORE rounds the minimum base slice up to a whole scheduler tick.

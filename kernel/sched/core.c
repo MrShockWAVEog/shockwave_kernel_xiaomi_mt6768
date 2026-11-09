@@ -7,6 +7,7 @@
  */
 #include "sched.h"
 
+#include <linux/sched/bore.h>
 #include <linux/nospec.h>
 
 #include <linux/kcov.h>
@@ -718,6 +719,11 @@ static void set_load_weight(struct task_struct *p, bool update_load)
 		p->se.runnable_weight = load->weight;
 		return;
 	}
+
+#ifdef CONFIG_SCHED_BORE
+	if (fair_policy(p->policy))
+		prio = effective_prio_bore(p);
+#endif
 
 	/*
 	 * SCHED_OTHER tasks have to update their load when changing their
@@ -3078,6 +3084,10 @@ int sched_fork(unsigned long clone_flags, struct task_struct *p)
 	else
 		p->sched_class = &fair_sched_class;
 
+#ifdef CONFIG_SCHED_BORE
+	task_fork_bore(p, current, clone_flags, ktime_get_ns());
+	set_load_weight(p, false);
+#endif
 	init_entity_runnable_average(&p->se);
 
 	/*
@@ -6792,6 +6802,10 @@ void __init sched_init(void)
 	unsigned long alloc_size = 0, ptr;
 
 	wait_bit_init();
+
+#ifdef CONFIG_SCHED_BORE
+	sched_init_bore();
+#endif
 
 #ifdef CONFIG_FAIR_GROUP_SCHED
 	alloc_size += 2 * nr_cpu_ids * sizeof(void **);

@@ -56,6 +56,7 @@
 #include <linux/pagemap.h>
 #include <linux/syscalls.h>
 #include <linux/signal.h>
+#include <linux/sched/bore.h>
 #include <linux/export.h>
 #include <linux/magic.h>
 #include <linux/pid.h>
@@ -2718,8 +2719,15 @@ static void futex_wait_queue_me(struct futex_hash_bucket *hb, struct futex_q *q,
 		 * flagged for rescheduling. Only call schedule if there
 		 * is no timeout, or if it has yet to expire.
 		 */
-		if (!timeout || timeout->task)
+		if (!timeout || timeout->task) {
+#ifdef CONFIG_SCHED_BORE
+			WRITE_ONCE(current->bore->futex_waiting, true);
+#endif
 			freezable_schedule();
+#ifdef CONFIG_SCHED_BORE
+			WRITE_ONCE(current->bore->futex_waiting, false);
+#endif
+		}
 	}
 	__set_current_state(TASK_RUNNING);
 }

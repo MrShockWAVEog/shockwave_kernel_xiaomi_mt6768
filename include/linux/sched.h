@@ -34,6 +34,7 @@
 
 /* task_struct member predeclarations (sorted alphabetically): */
 struct audit_context;
+struct bore_ctx;
 struct backing_dev_info;
 struct bio_list;
 struct blk_plug;
@@ -1334,7 +1335,11 @@ struct task_struct {
 	struct mutex			futex_exit_mutex;
 #endif
 
+#ifdef CONFIG_SCHED_BORE
+	ANDROID_KABI_USE(7, struct bore_ctx *bore);
+#else
 	ANDROID_KABI_RESERVE(7);
+#endif
 	ANDROID_KABI_RESERVE(8);
 
 	/*

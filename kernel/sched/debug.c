@@ -10,6 +10,7 @@
  * published by the Free Software Foundation.
  */
 #include "sched.h"
+#include <linux/sched/bore.h>
 
 /*
  * This allows printing both to /proc/sched_debug and
@@ -909,6 +910,12 @@ void proc_sched_show_task(struct task_struct *p, struct pid_namespace *ns,
 	PN(se.exec_start);
 	PN(se.vruntime);
 	PN(se.sum_exec_runtime);
+	PN(se.deadline);
+	P(se.slice);
+	P(se.sched_delayed);
+#ifdef CONFIG_SCHED_BORE
+	SEQ_printf(m, "%-45s:%21u\n", "bore.burst_score", bore_score(p));
+#endif
 
 	nr_switches = p->nvcsw + p->nivcsw;
 
