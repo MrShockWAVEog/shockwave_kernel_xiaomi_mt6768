@@ -20,6 +20,7 @@
 #include <linux/sched/numa_balancing.h>
 #include <linux/sched/stat.h>
 #include <linux/sched/task.h>
+#include <linux/sched/bore.h>
 #include <linux/sched/task_stack.h>
 #include <linux/sched/cputime.h>
 #include <linux/seq_file.h>
@@ -444,6 +445,7 @@ void put_task_stack(struct task_struct *tsk)
 
 void free_task(struct task_struct *tsk)
 {
+	bore_free_task(tsk);
 	cpufreq_task_times_exit(tsk);
 	scs_release(tsk);
 
@@ -885,9 +887,15 @@ static struct task_struct *dup_task_struct(struct task_struct *orig, int node)
 	if (err)
 		goto free_stack;
 
-	err = scs_prepare(tsk, node);
+	err = bore_alloc_task(tsk, node);
 	if (err)
 		goto free_stack;
+
+	err = scs_prepare(tsk, node);
+	if (err) {
+		bore_free_task(tsk);
+		goto free_stack;
+	}
 
 #ifdef CONFIG_SECCOMP
 	/*

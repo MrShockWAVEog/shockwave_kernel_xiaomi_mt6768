@@ -24,6 +24,7 @@
 #include <linux/swap.h>
 #include <linux/slab.h>
 #include <linux/sysctl.h>
+#include <linux/sched/bore.h>
 #include <linux/bitmap.h>
 #include <linux/signal.h>
 #include <linux/printk.h>
@@ -135,6 +136,14 @@ static unsigned long one_ul = 1;
 static unsigned long long_max = LONG_MAX;
 static int one_hundred = 100;
 static int one_thousand = 1000;
+#ifdef CONFIG_SCHED_BORE
+static unsigned int bore_max_protect_slice = 3;
+static unsigned int bore_max_smoothness = 15;
+static unsigned int bore_max_offset = 64;
+static unsigned int bore_max_scale = 4095;
+static unsigned int bore_max_credit_us = USEC_PER_SEC;
+static unsigned int bore_max_base_slice = NSEC_PER_SEC;
+#endif
 #ifdef CONFIG_PRINTK
 static int ten_thousand = 10000;
 #endif
@@ -383,6 +392,80 @@ static int bpf_stats_handler(struct ctl_table *table, int write,
 #endif
 
 static struct ctl_table kern_table[] = {
+#ifdef CONFIG_SCHED_BORE
+	{
+		.procname	= "sched_bore",
+		.data		= &sched_bore,
+		.maxlen		= sizeof(unsigned int),
+		.mode		= 0644,
+		.proc_handler	= sched_bore_update_handler,
+		.extra2		= &one,
+	},
+	{
+		.procname	= "sched_burst_inherit_type",
+		.data		= &sched_burst_inherit_type,
+		.maxlen		= sizeof(unsigned int),
+		.mode		= 0644,
+		.proc_handler	= sched_burst_inherit_type_update_handler,
+		.extra2		= &two,
+	},
+	{
+		.procname	= "sched_burst_protect_slice_lv",
+		.data		= &sched_burst_protect_slice_lv,
+		.maxlen		= sizeof(unsigned int),
+		.mode		= 0644,
+		.proc_handler	= sched_burst_protect_slice_update_handler,
+		.extra2		= &bore_max_protect_slice,
+	},
+	{
+		.procname	= "sched_burst_smoothness",
+		.data		= &sched_burst_smoothness,
+		.maxlen		= sizeof(unsigned int),
+		.mode		= 0644,
+		.proc_handler	= proc_douintvec_minmax,
+		.extra2		= &bore_max_smoothness,
+	},
+	{
+		.procname	= "sched_burst_penalty_offset",
+		.data		= &sched_burst_penalty_offset,
+		.maxlen		= sizeof(unsigned int),
+		.mode		= 0644,
+		.proc_handler	= proc_douintvec_minmax,
+		.extra2		= &bore_max_offset,
+	},
+	{
+		.procname	= "sched_burst_penalty_scale",
+		.data		= &sched_burst_penalty_scale,
+		.maxlen		= sizeof(unsigned int),
+		.mode		= 0644,
+		.proc_handler	= proc_douintvec_minmax,
+		.extra2		= &bore_max_scale,
+	},
+	{
+		.procname	= "sched_burst_cache_lifetime",
+		.data		= &sched_burst_cache_lifetime,
+		.maxlen		= sizeof(unsigned int),
+		.mode		= 0644,
+		.proc_handler	= proc_douintvec,
+	},
+	{
+		.procname	= "sched_credit_cap_us",
+		.data		= &sched_credit_cap_us,
+		.maxlen		= sizeof(unsigned int),
+		.mode		= 0644,
+		.proc_handler	= sched_credit_cap_us_update_handler,
+		.extra2		= &bore_max_credit_us,
+	},
+	{
+		.procname	= "sched_min_base_slice",
+		.data		= &sysctl_sched_min_base_slice,
+		.maxlen		= sizeof(unsigned int),
+		.mode		= 0644,
+		.proc_handler	= sched_min_base_slice_update_handler,
+		.extra1		= &one,
+		.extra2		= &bore_max_base_slice,
+	},
+#endif
 	{
 		.procname	= "sched_child_runs_first",
 		.data		= &sysctl_sched_child_runs_first,
