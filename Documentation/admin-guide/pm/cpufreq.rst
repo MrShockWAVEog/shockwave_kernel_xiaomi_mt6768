@@ -414,15 +414,33 @@ is passed by the scheduler to the governor callback which causes the frequency
 to go up to the allowed maximum immediately and then draw back to the value
 returned by the above formula over time.
 
-This governor exposes only one tunable:
+This tree exposes the following governor tunables:
 
-``rate_limit_us``
+``up_rate_limit_us``, ``down_rate_limit_us``
 	Minimum time (in microseconds) that has to pass between two consecutive
-	runs of governor computations (default: 1000 times the scaling driver's
-	transition latency).
+	frequency changes in the corresponding direction. Both default to the
+	policy's transition delay. The smaller limit also controls how often
+	governor computations may run.
 
 	The purpose of this tunable is to reduce the scheduler context overhead
 	of the governor which might be excessive without it.
+
+``load_boost``
+	Optional ondemand-style saturation boost, disabled by default. Set to 1
+	to sample each runnable CPU's busy time over an 8 ms window. A sampled
+	load above 95% requests maximum utilization before the normal utilization
+	clamps and frequency limits are applied. I/O wait counts as idle. The
+	pre-idle load can be reused once after a long idle interval, matching
+	ondemand's treatment of bursty wakeups. An idle CPU cannot request a
+	boost from its cached sample.
+
+	Below the threshold the existing scheduler-utilization and I/O-wait
+	paths remain in use. This copies ondemand's saturation boost, not its
+	entire frequency-selection algorithm. Existing rate limits and PELT
+	decay still govern frequency reductions. Set to 0 to disable the extra
+	load sampling for comparison. This option does not change EAS or CPU
+	frequency limits, and does not imply a particular frame-drop rate or
+	battery-life improvement.
 
 This governor generally is regarded as a replacement for the older `ondemand`_
 and `conservative`_ governors (described below), as it is simpler and more

@@ -13,14 +13,28 @@
 
 #include "sched.h"
 
+#include <linux/math64.h>
 #include <linux/sched/cpufreq.h>
+#include <linux/tick.h>
 #include <trace/events/power.h>
 #include "cpufreq_schedutil.h"
+
+#define SUGOV_LOAD_SAMPLE_US	8000
+#define SUGOV_LOAD_THRESHOLD	95
 
 struct sugov_tunables {
 	struct gov_attr_set	attr_set;
 	unsigned int		up_rate_limit_us;
 	unsigned int		down_rate_limit_us;
+	bool			load_boost;
+};
+
+struct sugov_load {
+	u64			last_update;
+	u64			idle_time;
+	u64			wall_time;
+	unsigned int		prev_load;
+	bool			boost;
 };
 
 struct sugov_policy {
@@ -62,6 +76,7 @@ struct sugov_cpu {
 	unsigned long		bw_dl;
 	unsigned long		min;
 	unsigned long		max;
+	struct sugov_load	load;
 
 	/* The field below is for single-CPU policies only: */
 #ifdef CONFIG_NO_HZ_COMMON
@@ -377,7 +392,76 @@ unsigned long schedutil_cpu_util(int cpu, unsigned long util_cfs,
 	return min(max, util);
 }
 
-static unsigned long sugov_get_util(struct sugov_cpu *sg_cpu)
+/*
+ * Use ondemand's short busy-time window to recognize saturated bursts before
+ * PELT has ramped up. The caller still applies utilization clamps, IRQ/RT/DL
+ * accounting and the policy limits when selecting the frequency.
+ */
+static bool sugov_load_boost(struct sugov_cpu *sg_cpu, u64 time)
+{
+	struct sugov_load *load = &sg_cpu->load;
+	u64 idle, wall, delta_idle, delta_wall;
+	unsigned int busy;
+
+	if (!READ_ONCE(sg_cpu->sg_policy->tunables->load_boost)) {
+		load->last_update = 0;
+		load->prev_load = 0;
+		load->boost = false;
+		return false;
+	}
+
+	/* A cached busy sample must not boost a CPU with no runnable work. */
+	if (!READ_ONCE(cpu_rq(sg_cpu->cpu)->nr_running))
+		return false;
+
+	if (load->last_update && time >= load->last_update &&
+	    time - load->last_update < SUGOV_LOAD_SAMPLE_US * NSEC_PER_USEC)
+		return load->boost;
+
+	/*
+	 * Include I/O wait as idle, matching ondemand's io_is_busy=0. Use
+	 * read-only NOHZ queries: shared policies can inspect a remote CPU
+	 * here and must not update that CPU's idle accounting counters.
+	 */
+	idle = get_cpu_idle_time_us(sg_cpu->cpu, NULL);
+	if (idle == -1ULL) {
+		idle = get_cpu_idle_time(sg_cpu->cpu, &wall, 0);
+	} else {
+		idle += get_cpu_iowait_time_us(sg_cpu->cpu, NULL);
+		wall = ktime_to_us(ktime_get());
+	}
+	if (!load->last_update || time < load->last_update ||
+	    wall < load->wall_time || idle < load->idle_time) {
+		load->prev_load = 0;
+		load->boost = false;
+		goto update;
+	}
+
+	delta_wall = wall - load->wall_time;
+	delta_idle = idle - load->idle_time;
+	if (!delta_wall)
+		goto update;
+
+	/* Reuse the pre-idle load once, as ondemand does for bursty wakeups. */
+	if (delta_idle <= delta_wall &&
+	    delta_idle > 2 * SUGOV_LOAD_SAMPLE_US && load->prev_load) {
+		busy = load->prev_load;
+		load->prev_load = 0;
+	} else {
+		busy = delta_wall > delta_idle ?
+			div64_u64(100 * (delta_wall - delta_idle), delta_wall) : 0;
+		load->prev_load = busy;
+	}
+
+	load->boost = busy > SUGOV_LOAD_THRESHOLD;
+update:
+	load->last_update = time;
+	load->idle_time = idle;
+	load->wall_time = wall;
+	return load->boost;
+}
+
+static unsigned long sugov_get_util(struct sugov_cpu *sg_cpu, u64 time)
 {
 	struct rq *rq = cpu_rq(sg_cpu->cpu);
 	unsigned long util_cfs = cpu_util_cfs(rq);
@@ -385,6 +469,9 @@ static unsigned long sugov_get_util(struct sugov_cpu *sg_cpu)
 
 	sg_cpu->max = max;
 	sg_cpu->bw_dl = cpu_bw_dl(rq);
+
+	if (sugov_load_boost(sg_cpu, time))
+		util_cfs = max;
 
 	return schedutil_cpu_util(sg_cpu->cpu, util_cfs, max,
 				  FREQUENCY_UTIL, NULL);
@@ -559,7 +646,7 @@ static void sugov_update_single(struct update_util_data *hook, u64 time,
 	/* Limits may have changed, don't skip frequency update */
 	busy = !sg_policy->need_freq_update && sugov_cpu_is_busy(sg_cpu);
 
-	util = sugov_get_util(sg_cpu);
+	util = sugov_get_util(sg_cpu, time);
 	max = sg_cpu->max;
 	util = sugov_iowait_apply(sg_cpu, time, util, max);
 	next_f = get_next_freq(sg_policy, util, max);
@@ -611,7 +698,7 @@ static unsigned int sugov_next_freq_shared(struct sugov_cpu *sg_cpu, u64 time)
 		struct sugov_cpu *j_sg_cpu = &per_cpu(sugov_cpu, j);
 		unsigned long j_util, j_max;
 
-		j_util = sugov_get_util(j_sg_cpu);
+		j_util = sugov_get_util(j_sg_cpu, time);
 		j_max = j_sg_cpu->max;
 		j_util = sugov_iowait_apply(j_sg_cpu, time, j_util, j_max);
 
@@ -736,6 +823,26 @@ static ssize_t down_rate_limit_us_show(struct gov_attr_set *attr_set, char *buf)
 	return sprintf(buf, "%u\n", tunables->down_rate_limit_us);
 }
 
+static ssize_t load_boost_show(struct gov_attr_set *attr_set, char *buf)
+{
+	struct sugov_tunables *tunables = to_sugov_tunables(attr_set);
+
+	return sprintf(buf, "%u\n", READ_ONCE(tunables->load_boost));
+}
+
+static ssize_t load_boost_store(struct gov_attr_set *attr_set,
+				const char *buf, size_t count)
+{
+	struct sugov_tunables *tunables = to_sugov_tunables(attr_set);
+	bool enabled;
+
+	if (kstrtobool(buf, &enabled))
+		return -EINVAL;
+
+	WRITE_ONCE(tunables->load_boost, enabled);
+	return count;
+}
+
 static ssize_t up_rate_limit_us_store(struct gov_attr_set *attr_set,
 				      const char *buf, size_t count)
 {
@@ -778,10 +885,12 @@ static ssize_t down_rate_limit_us_store(struct gov_attr_set *attr_set,
 
 static struct governor_attr up_rate_limit_us = __ATTR_RW(up_rate_limit_us);
 static struct governor_attr down_rate_limit_us = __ATTR_RW(down_rate_limit_us);
+static struct governor_attr load_boost = __ATTR_RW(load_boost);
 
 static struct attribute *sugov_attributes[] = {
 	&up_rate_limit_us.attr,
 	&down_rate_limit_us.attr,
+	&load_boost.attr,
 	NULL
 };
 
