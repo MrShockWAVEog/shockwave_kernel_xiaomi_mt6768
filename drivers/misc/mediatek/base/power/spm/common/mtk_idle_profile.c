@@ -356,7 +356,7 @@ void mtk_idle_dump_cnt_in_interval(void)
 	mtk_idle_dump_cnt(IDLE_TYPE_SO);
 
 	/* dump log */
-	printk_deferred("[name:spm&]Power/swap %s\n", get_log());
+	pr_debug("[name:spm&]Power/swap %s\n", get_log());
 
 	/* dump idle ratio */
 	if (idle_ratio_en) {
@@ -375,7 +375,7 @@ void mtk_idle_dump_cnt_in_interval(void)
 			idle_prof[i].ratio.value = 0;
 		}
 		append_log("--- (ms)\n");
-		printk_deferred("[name:spm&]Power/swap %s\n", get_log());
+		pr_debug("[name:spm&]Power/swap %s\n", get_log());
 		idle_ratio_profile_start_time = idle_get_current_time_ms();
 	}
 }
@@ -433,7 +433,7 @@ bool mtk_idle_select_state(int type, int reason)
 				, "[%d] = (%lu), "
 				, i, p_idle->cnt[i]);
 
-		printk_deferred("[name:spm&]Power/swap %s\n"
+		pr_debug("[name:spm&]Power/swap %s\n"
 				, get_idle_buf(idle_state_log));
 
 		/* block category */
@@ -445,7 +445,7 @@ bool mtk_idle_select_state(int type, int reason)
 						, "[%s] = %lu, "
 						, mtk_idle_block_reason_name(i)
 						, p_idle->block_cnt[i]);
-		printk_deferred("[name:spm&]Power/swap %s\n"
+		pr_debug("[name:spm&]Power/swap %s\n"
 				, get_idle_buf(idle_state_log));
 
 		/* block mask */
@@ -455,7 +455,7 @@ bool mtk_idle_select_state(int type, int reason)
 		idle_state_log.p_idx += mtk_idle_cond_append_info(true, type,
 			idle_state_log.p_idx,
 			IDLE_LOG_BUF_LEN - strlen(idle_state_log.buf));
-		printk_deferred("[name:spm&]Power/swap %s\n"
+		pr_debug("[name:spm&]Power/swap %s\n"
 				, get_idle_buf(idle_state_log));
 
 		memset(p_idle->block_cnt, 0,
