@@ -354,7 +354,7 @@ static ssize_t BT_read(struct file *filp, char __user *buf, size_t count, loff_t
 	}
 
 	if (count > BT_BUFFER_SIZE) {
-		BTMTK_WARN("Shorten read count from %zd to %d", count, BT_BUFFER_SIZE);
+		BTMTK_DBG("Shorten read count from %zd to %d", count, BT_BUFFER_SIZE);
 		count = BT_BUFFER_SIZE;
 	}
 
