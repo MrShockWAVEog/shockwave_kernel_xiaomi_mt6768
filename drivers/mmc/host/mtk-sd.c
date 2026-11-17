@@ -972,7 +972,7 @@ static void msdc_set_mclk(struct msdc_host *host, unsigned char timing, u32 hz)
 		cpu_relax();
 	if (host->mclk == 0 && (mmc->caps2 & MMC_CAP2_NO_MMC)
 		&& mmc->ios.signal_voltage == MMC_SIGNAL_VOLTAGE_180) {
-		dev_info(host->dev, "[%s]:enable clk free run 1ms+ for switch to 1.8v\n",
+		dev_dbg(host->dev, "[%s]:enable clk free run 1ms+ for switch to 1.8v\n",
 			__func__);
 		sdr_set_bits(host->base + MSDC_CFG, MSDC_CFG_CKPDN);
 		usleep_range(1000, 1500);
@@ -1024,7 +1024,7 @@ static void msdc_set_mclk(struct msdc_host *host, unsigned char timing, u32 hz)
 		sdr_set_field(host->base + tune_reg,
 			      MSDC_PAD_TUNE_CMDRRDLY,
 			      host->hs400_cmd_int_delay);
-	dev_info(host->dev, "sclk: %d, timing: %d\n", host->mmc->actual_clock,
+	dev_dbg(host->dev, "sclk: %d, timing: %d\n", host->mmc->actual_clock,
 		timing);
 }
 
@@ -2248,7 +2248,7 @@ static struct msdc_delay_phase get_best_delay(struct msdc_host *host, u32 delay)
 		final_phase = (start_final + len_final / 3) % PAD_DELAY_MAX;
 	else
 		final_phase = (start_final + len_final / 2) % PAD_DELAY_MAX;
-	dev_info(host->dev, "phase: [map:%x] [maxlen:%d] [final:%d]\n",
+	dev_dbg(host->dev, "phase: [map:%x] [maxlen:%d] [final:%d]\n",
 		 delay, len_final, final_phase);
 
 	delay_phase.maxlen = len_final;
@@ -2651,7 +2651,6 @@ static int msdc_execute_tuning(struct mmc_host *mmc, u32 opcode)
 	struct msdc_host *host = mmc_priv(mmc);
 	int ret = 0;
 	u32 tune_reg = host->dev_comp->pad_tune_reg;
-	dev_info(host->dev, "%s\n", __func__);
 	if (host->dev_comp->data_tune && host->dev_comp->async_fifo) {
 		if (host->need_tune && (mmc->host_function == MSDC_SD)) {
 			if (msdc_get_cd(mmc) == 0)
@@ -2673,7 +2672,7 @@ static int msdc_execute_tuning(struct mmc_host *mmc, u32 opcode)
 			if (host->retune_times >= 4) {
 				sdcard_reset_tuning(mmc);
 			} else if (!ret) {
-				pr_info("mmc%d autok pass\n", mmc->index);
+				pr_debug("mmc%d autok pass\n", mmc->index);
 				host->need_tune = TUNE_AUTOK_PASS;
 			}
 		}
