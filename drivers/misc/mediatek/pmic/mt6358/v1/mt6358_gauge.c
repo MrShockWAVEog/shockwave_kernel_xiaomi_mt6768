@@ -672,7 +672,7 @@ void iavg_check(struct gauge_device *gauge_dev,
 	else
 		*iavg_less = false;
 
-	bm_err(
+	bm_debug(
 		"[%s] iavg:%lld cic2:%d offset:%d 0x%x 0x%x %d %d\r\n",
 		__func__,
 		fg_iavg_ma,
@@ -1832,7 +1832,7 @@ static int fgauge_read_boot_battery_plug_out_status(
 {
 	*is_plugout = is_bat_plugout;
 	*plutout_time = bat_plug_out_time;
-	bm_err(
+	bm_debug(
 		"[read_boot_battery_plug_out_status] rtc_invalid %d plugout %d bat_plug_out_time %d sp3:0x%x pl:%d %d\n",
 		rtc_invalid, is_bat_plugout, bat_plug_out_time,
 		gspare3_reg, moniter_plchg_bit, pl_charging_status);
@@ -2737,7 +2737,7 @@ int fgauge_get_hw_status(
 	fgauge_get_time(gauge_dev, &time);
 	gauge_dev->fg_hw_info.time = time;
 
-	bm_err("[FGADC_intr_end][%s][read_fg_hw_info] curr_1 %d curr_2 %d Iavg %d sign %d car %d ncar %d time %d\n",
+	bm_debug("[FGADC_intr_end][%s][read_fg_hw_info] curr_1 %d curr_2 %d Iavg %d sign %d car %d ncar %d time %d\n",
 		intr_name, gauge_dev->fg_hw_info.current_1,
 		gauge_dev->fg_hw_info.current_2,
 		gauge_dev->fg_hw_info.current_avg,
@@ -3293,7 +3293,7 @@ void iavg_workaround(struct gauge_device *gauge_dev,
 		}
 	}
 
-	bm_err(
+	bm_debug(
 		"[%s]type:%d 0x%x 0x%x!\n",
 		__func__,
 		evt,

@@ -475,7 +475,7 @@ static int bms_get_property(struct power_supply *psy,
 		val->intval = gm.battery_id;
 		break;
 	case POWER_SUPPLY_PROP_CHARGE_FULL:
-		pr_err("mtk_qmax_agin:%d qmax:%d\n", mtk_qmax_aging, qmax);
+		pr_debug("mtk_qmax_agin:%d qmax:%d\n", mtk_qmax_aging, qmax);
 		if (mtk_qmax_aging < 50200)
 			qmax = mtk_qmax_aging * 100;
 		val->intval = qmax;
@@ -643,7 +643,7 @@ static int battery_get_property(struct power_supply *psy,
 		val->intval = battery_get_bat_avg_current() * 100;
 		break;
 	case POWER_SUPPLY_PROP_CHARGE_FULL:
-		pr_err("mtk_qmax_agin:%d qmax:%d\n", mtk_qmax_aging, qmax);
+		pr_debug("mtk_qmax_agin:%d qmax:%d\n", mtk_qmax_aging, qmax);
 		if (mtk_qmax_aging < 50200)
 			qmax = mtk_qmax_aging * 100;
 		val->intval = qmax;
@@ -856,7 +856,9 @@ void battery_update(struct battery_data *bat_data)
 		bat_data->BAT_STATUS = POWER_SUPPLY_STATUS_FULL;
 	bm_err("battery_update set FULL! ui:%d chr:%d %d done:%d\n", bat_data->BAT_CAPACITY, upmu_get_rgs_chrdet(), bat_data->BAT_STATUS, chg_done);
 	}
-	bm_err("battery_update status: ui:%d chr:%d status%d done:%d temp:%d\n", bat_data->BAT_CAPACITY, upmu_get_rgs_chrdet(), bat_data->BAT_STATUS, chg_done, bat_data->BAT_batt_temp);
+	bm_debug("%s status: ui:%d chr:%d status%d done:%d temp:%d\n",
+		__func__, bat_data->BAT_CAPACITY, upmu_get_rgs_chrdet(),
+		bat_data->BAT_STATUS, chg_done, bat_data->BAT_batt_temp);
 
 #if defined(CONFIG_MTK_DISABLE_GAUGE)
 	return;
@@ -4612,7 +4614,7 @@ static void otg_boost_limit_work(struct work_struct *work)
 		fgcurrent = 0 - fgcurrent;
 
 	current_now = fgcurrent * 100;
-	pr_err("dhx--state:%d--current now = %d\n", b_ischarging, current_now);
+	pr_debug("dhx--state:%d--current now = %d\n", b_ischarging, current_now);
 	if (!primary_charger) {
 		pr_err("primary_charger is NULL\n");
 		primary_charger = get_charger_by_name("primary_chg");
@@ -4639,11 +4641,11 @@ static void otg_boost_limit_work(struct work_struct *work)
 	if (count_low >= 6)	{
 		charger_dev_set_otg_current(primary_charger, 1800000);
 		otg_ibat_limit = 0;
-		pr_err("dhx---set otg current 1.8A\n");
+		pr_debug("dhx---set otg current 1.8A\n");
 	} else if (count_high == 6)	{
 		charger_dev_set_otg_current(primary_charger, 1000000);
 		otg_ibat_limit = 1;
-		pr_err("dhx---set otg current 1A\n");
+		pr_debug("dhx---set otg current 1A\n");
 	}
 	schedule_delayed_work(&otg_boost_current_work, msecs_to_jiffies(10000));
 }
