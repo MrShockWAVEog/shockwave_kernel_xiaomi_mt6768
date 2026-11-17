@@ -834,7 +834,7 @@ static void md_ccif_traffic_work_func(struct work_struct *work)
 				break;
 			}
 		}
-		CCCI_NORMAL_LOG(md_ctrl->md_id, TAG, "%s\n", string);
+		CCCI_REPEAT_LOG(md_ctrl->md_id, TAG, "%s\n", string);
 
 	}
 err_exit1:
