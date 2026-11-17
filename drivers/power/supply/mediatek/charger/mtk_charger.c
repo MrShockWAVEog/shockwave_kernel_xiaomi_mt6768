@@ -935,7 +935,7 @@ void charger_manager_set_prop_system_temp_level(int temp_level)
 	if (pcba_to_thermal == PCBA_J15S_MP_CN)
 		is_cn = true;
 #endif
-	pr_err("thermal_pcba is %d, is_cn:%d\n", pcba_to_thermal, is_cn);
+	pr_debug("thermal_pcba is %d, is_cn:%d\n", pcba_to_thermal, is_cn);
 	if (temp_level < 0)
 		pinfo->system_temp_level = 0;
 	else if (temp_level > pinfo->system_temp_level_max)
@@ -978,7 +978,7 @@ void charger_manager_set_prop_system_temp_level(int temp_level)
 	} else {
 		thermal_is_500 = false;
 	}
-	pr_err("%s, system_temp_level:%d thermal_icl_ua:%d usb_type:%d\n", __func__,
+	pr_debug("%s, system_temp_level:%d thermal_icl_ua:%d usb_type:%d\n", __func__,
 			pinfo->system_temp_level, thermal_icl_ua, pinfo->usb_psy->desc->type);
 
 	// pr_err("%s, system_temp_level:%d thermal_icl_ua:%d \n", __func__,
@@ -1290,7 +1290,7 @@ void do_sw_jeita_state_machine(struct charger_manager *info)
 			    <= info->data.temp_t2_thres_plus_x_degree))) {
 			chr_err("[SW_JEITA] Battery Temperature not recovery to normal temperature charging mode yet!!\n");
 		} else {
-			chr_err("[SW_JEITA] Battery Normal Temperature between %d and %d !!\n",
+			chr_debug("[SW_JEITA] Battery Normal Temperature between %d and %d !!\n",
 				info->data.temp_t2_thres,
 				info->data.temp_t3_thres);
 			sw_jeita->sm = TEMP_T2_TO_T3;
@@ -1367,7 +1367,7 @@ void do_sw_jeita_state_machine(struct charger_manager *info)
 		sw_jeita->cv = 0;
 	}
 
-	chr_err("[SW_JEITA]preState:%d newState:%d tmp:%d cv:%d cc:%d\n",
+	chr_debug("[SW_JEITA]preState:%d newState:%d tmp:%d cv:%d cc:%d\n",
 		sw_jeita->pre_sm, sw_jeita->sm, info->battery_temp,
 		sw_jeita->cv, sw_jeita->cc);
 }
@@ -2028,7 +2028,7 @@ static void charger_check_status(struct charger_manager *info)
 stop_charging:
 	mtk_battery_notify_check(info);
 
-	chr_err("tmp:%d (jeita:%d sm:%d cv:%d en:%d) (sm:%d) en:%d c:%d s:%d ov:%d sc:%d %d %d\n",
+	chr_debug("tmp:%d (jeita:%d sm:%d cv:%d en:%d) (sm:%d) en:%d c:%d s:%d ov:%d sc:%d %d %d\n",
 		temperature, info->enable_sw_jeita, info->sw_jeita.sm,
 		info->sw_jeita.cv, info->sw_jeita.charging, thermal->sm,
 		charging, info->cmd_discharging, info->safety_timeout,
@@ -2130,7 +2130,7 @@ static enum alarmtimer_restart
 	container_of(alarm, struct charger_manager, charger_timer);
 
 	if (info->is_suspend == false) {
-		chr_err("%s: not suspend, wake up charger\n", __func__);
+		chr_debug("%s: not suspend, wake up charger\n", __func__);
 		_wake_up_charger(info);
 	} else {
 		chr_err("%s: alarm timer timeout\n", __func__);
@@ -2161,7 +2161,7 @@ static void mtk_charger_start_timer(struct charger_manager *info)
 
 	ktime = ktime_set(info->endtime.tv_sec, info->endtime.tv_nsec);
 
-	chr_err("%s: alarm timer start:%d, %ld %ld\n", __func__, ret,
+	chr_debug("%s: alarm timer start:%d, %ld %ld\n", __func__, ret,
 		info->endtime.tv_sec, info->endtime.tv_nsec);
 	alarm_start(&pinfo->charger_timer, ktime);
 }
@@ -2214,7 +2214,7 @@ static int charger_routine_thread(void *arg)
 		bat_current = battery_get_bat_current();
 		chg_current = pmic_get_charging_current();
 		hvdcp_vbus_check(info);
-		chr_err("Vbat=%d,Ibat=%d,I=%d,VChr=%d,T=%d,Soc=%d:%d,CT:%d:%d hv:%d pd:%d:%d\n",
+		chr_debug("Vbat=%d,Ibat=%d,I=%d,VChr=%d,T=%d,Soc=%d:%d,CT:%d:%d hv:%d pd:%d:%d\n",
 			battery_get_bat_voltage(), bat_current, chg_current,
 			battery_get_vbus(), battery_get_bat_temperature(),
 			battery_get_soc(), battery_get_uisoc(),
