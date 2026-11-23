@@ -6041,6 +6041,29 @@ out:
 		return MEMCG_PROT_NONE;
 }
 
+/*
+ * Protection is calculated by the caller's top-down reclaim walk. Do not
+ * reuse inherited protection when this cgroup is itself the reclaim target.
+ */
+unsigned long mem_cgroup_reclaimable(struct mem_cgroup *root,
+				     struct mem_cgroup *memcg, bool low_reclaim)
+{
+	unsigned long usage, protection;
+
+	if (!memcg || mem_cgroup_disabled() || memcg == root ||
+	    mem_cgroup_is_root(memcg))
+		return ULONG_MAX;
+
+	protection = READ_ONCE(memcg->memory.emin);
+	if (!low_reclaim)
+		protection = max(protection, READ_ONCE(memcg->memory.elow));
+	if (!protection)
+		return ULONG_MAX;
+
+	usage = page_counter_read(&memcg->memory);
+	return usage > protection ? usage - protection : 0;
+}
+
 /**
  * mem_cgroup_try_charge - try charging a page
  * @page: page to charge
