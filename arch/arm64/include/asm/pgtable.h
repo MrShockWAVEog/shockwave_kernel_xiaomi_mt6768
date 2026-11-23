@@ -776,7 +776,18 @@ extern pgd_t tramp_pg_dir[PTRS_PER_PGD];
 
 extern int kern_addr_valid(unsigned long addr);
 
-#define arch_has_hw_pte_young	cpu_has_hw_af
+static inline bool arch_has_hw_pte_young(void)
+{
+	u64 mmfr1;
+
+	if (!IS_ENABLED(CONFIG_ARM64_HW_AFDBM))
+		return false;
+
+	mmfr1 = read_sanitised_ftr_reg(SYS_ID_AA64MMFR1_EL1);
+	return cpuid_feature_extract_unsigned_field(mmfr1,
+						   ID_AA64MMFR1_HADBS_SHIFT);
+}
+#define arch_has_hw_pte_young	arch_has_hw_pte_young
 
 void pgd_cache_init(void);
 #define pgtable_cache_init	pgd_cache_init
