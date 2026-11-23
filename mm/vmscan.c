@@ -4185,7 +4185,8 @@ static bool isolate_page(struct lruvec *lruvec, struct page *page, struct scan_c
 }
 
 static int scan_pages(struct lruvec *lruvec, struct scan_control *sc,
-		      int type, int tier, struct list_head *list)
+		      int type, int tier, unsigned long nr_to_isolate,
+		      struct list_head *list)
 {
 	int i;
 	int gen;
@@ -4226,7 +4227,8 @@ static int scan_pages(struct lruvec *lruvec, struct scan_control *sc,
 
 			if (sort_page(lruvec, page, sc, tier))
 				sorted += delta;
-			else if (isolate_page(lruvec, page, sc)) {
+			else if (delta <= nr_to_isolate - isolated &&
+				 isolate_page(lruvec, page, sc)) {
 				list_add(&page->lru, list);
 				isolated += delta;
 			} else {
@@ -4234,7 +4236,8 @@ static int scan_pages(struct lruvec *lruvec, struct scan_control *sc,
 				skipped += delta;
 			}
 
-			if (!--remaining || max(isolated, skipped) >= MIN_LRU_BATCH)
+			if (!--remaining || isolated >= nr_to_isolate ||
+			    max(isolated, skipped) >= MIN_LRU_BATCH)
 				break;
 		}
 
@@ -4243,7 +4246,8 @@ static int scan_pages(struct lruvec *lruvec, struct scan_control *sc,
 			__count_zid_vm_events(PGSCAN_SKIP, zone, skipped);
 		}
 
-		if (!remaining || isolated >= MIN_LRU_BATCH)
+		if (!remaining || isolated >= min_t(unsigned long, nr_to_isolate,
+						    MIN_LRU_BATCH))
 			break;
 	}
 
@@ -4312,7 +4316,7 @@ static int get_type_to_scan(struct lruvec *lruvec, int swappiness, int *tier_idx
 }
 
 static int isolate_pages(struct lruvec *lruvec, struct scan_control *sc, int swappiness,
-			 int *type_scanned, struct list_head *list)
+			 unsigned long nr_to_isolate, int *type_scanned, struct list_head *list)
 {
 	int i;
 	int type;
@@ -4342,7 +4346,7 @@ static int isolate_pages(struct lruvec *lruvec, struct scan_control *sc, int swa
 		if (tier < 0)
 			tier = get_tier_idx(lruvec, type);
 
-		scanned = scan_pages(lruvec, sc, type, tier, list);
+		scanned = scan_pages(lruvec, sc, type, tier, nr_to_isolate, list);
 		if (scanned)
 			break;
 
@@ -4356,7 +4360,7 @@ static int isolate_pages(struct lruvec *lruvec, struct scan_control *sc, int swa
 }
 
 static int evict_pages(struct lruvec *lruvec, struct scan_control *sc, int swappiness,
-		       bool *swapped)
+		       unsigned long nr_to_isolate, bool *swapped)
 {
 	int type;
 	int scanned;
@@ -4373,7 +4377,7 @@ static int evict_pages(struct lruvec *lruvec, struct scan_control *sc, int swapp
 
 	spin_lock_irq(&pgdat->lru_lock);
 
-	scanned = isolate_pages(lruvec, sc, swappiness, &type, &list);
+	scanned = isolate_pages(lruvec, sc, swappiness, nr_to_isolate, &type, &list);
 
 	if (try_to_inc_min_seq(lruvec, swappiness))
 		scanned++;
@@ -4504,6 +4508,7 @@ static void lru_gen_shrink_lruvec(struct lruvec *lruvec, struct scan_control *sc
 	bool need_aging = false;
 	bool swapped = false;
 	unsigned long reclaimed = sc->nr_reclaimed;
+	struct mem_cgroup *memcg = lruvec_memcg(lruvec);
 	struct pglist_data *pgdat = lruvec_pgdat(lruvec);
 
 	blk_start_plug(&plug);
@@ -4515,6 +4520,12 @@ static void lru_gen_shrink_lruvec(struct lruvec *lruvec, struct scan_control *sc
 		int delta;
 		int swappiness;
 		long nr_to_scan;
+		unsigned long nr_to_isolate;
+
+		nr_to_isolate = mem_cgroup_reclaimable(sc->target_mem_cgroup, memcg,
+						      sc->memcg_low_reclaim);
+		if (!nr_to_isolate)
+			break;
 
 		if (sc->may_swap)
 			swappiness = get_swappiness(lruvec, sc);
@@ -4527,7 +4538,7 @@ static void lru_gen_shrink_lruvec(struct lruvec *lruvec, struct scan_control *sc
 		if (!nr_to_scan)
 			goto done;
 
-		delta = evict_pages(lruvec, sc, swappiness, &swapped);
+		delta = evict_pages(lruvec, sc, swappiness, nr_to_isolate, &swapped);
 		if (!delta)
 			goto done;
 
@@ -4984,7 +4995,7 @@ static int run_eviction(struct lruvec *lruvec, unsigned long seq, struct scan_co
 		DEFINE_MIN_SEQ(lruvec);
 
 		if (seq < min_seq[!swappiness] || sc->nr_reclaimed >= nr_to_reclaim ||
-		    !evict_pages(lruvec, sc, swappiness, NULL)) {
+		    !evict_pages(lruvec, sc, swappiness, ULONG_MAX, NULL)) {
 			err = 0;
 			break;
 		}
@@ -5437,14 +5448,20 @@ static bool shrink_node(pg_data_t *pgdat, struct scan_control *sc)
 			.pgdat = pgdat,
 			.priority = sc->priority,
 		};
+		struct mem_cgroup_reclaim_cookie *cookie = &reclaim;
 		struct mem_cgroup *memcg;
 
+#ifdef CONFIG_MEMCG
+		/* Effective protection requires visiting ancestors first. */
+		if (cgroup_subsys_on_dfl(memory_cgrp_subsys))
+			cookie = NULL;
+#endif
 		memset(&sc->nr, 0, sizeof(sc->nr));
 
 		nr_reclaimed = sc->nr_reclaimed;
 		nr_scanned = sc->nr_scanned;
 
-		memcg = mem_cgroup_iter(root, NULL, &reclaim);
+		memcg = mem_cgroup_iter(root, NULL, cookie);
 		do {
 			unsigned long reclaimed;
 			unsigned long scanned;
@@ -5485,8 +5502,10 @@ static bool shrink_node(pg_data_t *pgdat, struct scan_control *sc)
 			scanned = sc->nr_scanned;
 			shrink_node_memcg(pgdat, memcg, sc);
 
-			shrink_slab(sc->gfp_mask, pgdat->node_id,
-				    memcg, sc->priority);
+			if (!lru_gen_enabled() ||
+			    mem_cgroup_reclaimable(root, memcg, sc->memcg_low_reclaim))
+				shrink_slab(sc->gfp_mask, pgdat->node_id,
+					    memcg, sc->priority);
 
 			/* Record the group's reclaim efficiency */
 			vmpressure(sc->gfp_mask, memcg, false,
@@ -5508,7 +5527,7 @@ static bool shrink_node(pg_data_t *pgdat, struct scan_control *sc)
 				mem_cgroup_iter_break(root, memcg);
 				break;
 			}
-		} while ((memcg = mem_cgroup_iter(root, memcg, &reclaim)));
+		} while ((memcg = mem_cgroup_iter(root, memcg, cookie)));
 
 		if (reclaim_state) {
 			sc->nr_reclaimed += reclaim_state->reclaimed_slab;

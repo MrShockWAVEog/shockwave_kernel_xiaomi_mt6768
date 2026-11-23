@@ -437,6 +437,8 @@ static inline bool mem_cgroup_disabled(void)
 
 enum mem_cgroup_protection mem_cgroup_protected(struct mem_cgroup *root,
 						struct mem_cgroup *memcg);
+unsigned long mem_cgroup_reclaimable(struct mem_cgroup *root,
+				     struct mem_cgroup *memcg, bool low_reclaim);
 
 int mem_cgroup_try_charge(struct page *page, struct mm_struct *mm,
 			  gfp_t gfp_mask, struct mem_cgroup **memcgp,
@@ -981,6 +983,12 @@ static inline enum mem_cgroup_protection mem_cgroup_protected(
 	struct mem_cgroup *root, struct mem_cgroup *memcg)
 {
 	return MEMCG_PROT_NONE;
+}
+
+static inline unsigned long mem_cgroup_reclaimable(struct mem_cgroup *root,
+					struct mem_cgroup *memcg, bool low_reclaim)
+{
+	return ULONG_MAX;
 }
 
 static inline int mem_cgroup_try_charge(struct page *page, struct mm_struct *mm,
