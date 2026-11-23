@@ -3939,12 +3939,8 @@ static void lru_gen_age_node(struct pglist_data *pgdat, struct scan_control *sc)
 
 	current->reclaim_state->mm_walk = NULL;
 
-	/*
-	 * The main goal is to OOM kill if every generation from all memcgs is
-	 * younger than min_ttl. However, another theoretical possibility is all
-	 * memcgs are either below min or empty.
-	 */
-	if (!success && !sc->order && mutex_trylock(&oom_lock)) {
+	/* With a TTL configured, OOM if there are no old enough generations. */
+	if (min_ttl && !success && !sc->order && mutex_trylock(&oom_lock)) {
 		struct oom_control oc = {
 			.gfp_mask = sc->gfp_mask,
 		};
