@@ -24,12 +24,13 @@ following subsections.
 
 Kill switch
 -----------
-``enable`` accepts different values to enable or disable the following
+``enabled`` accepts different values to enable or disable the following
 components. Its default value depends on ``CONFIG_LRU_GEN_ENABLED``.
 All the components should be enabled unless some of them have
 unforeseen side effects. Writing to ``enable`` has no effect when a
 component is not supported by the hardware, and valid values will be
-accepted even when the main switch is off.
+accepted even when the main switch is off. Reading the file reports
+the bitmask in hexadecimal.
 
 ====== ===============================================================
 Values Components
