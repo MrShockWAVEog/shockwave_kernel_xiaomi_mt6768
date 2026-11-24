@@ -100,7 +100,7 @@ struct interactive_tunables {
 	 */
 #define DEFAULT_TIMER_SLACK (4 * DEFAULT_SAMPLING_RATE)
 	unsigned long timer_slack_delay;
-	unsigned long timer_slack;
+	int timer_slack;
 	bool io_is_busy;
 };
 
@@ -167,8 +167,11 @@ static DEFINE_MUTEX(global_tunables_lock);
 
 static inline void update_slack_delay(struct interactive_tunables *tunables)
 {
-	tunables->timer_slack_delay = usecs_to_jiffies(tunables->timer_slack +
-						       tunables->sampling_rate);
+	unsigned long delay = usecs_to_jiffies(tunables->sampling_rate);
+
+	if (tunables->timer_slack >= 0)
+		delay += usecs_to_jiffies(tunables->timer_slack);
+	WRITE_ONCE(tunables->timer_slack_delay, delay);
 }
 
 static bool timer_slack_required(struct interactive_cpu *icpu)
@@ -176,7 +179,7 @@ static bool timer_slack_required(struct interactive_cpu *icpu)
 	struct interactive_policy *ipolicy = icpu->ipolicy;
 	struct interactive_tunables *tunables = ipolicy->tunables;
 
-	if (tunables->timer_slack == 0)
+	if (READ_ONCE(tunables->timer_slack) < 0)
 		return false;
 
 	if (icpu->target_freq > ipolicy->policy->min)
@@ -189,7 +192,7 @@ static void gov_slack_timer_start(struct interactive_cpu *icpu, int cpu)
 {
 	struct interactive_tunables *tunables = icpu->ipolicy->tunables;
 
-	icpu->slack_timer.expires = jiffies + tunables->timer_slack_delay;
+	icpu->slack_timer.expires = jiffies + READ_ONCE(tunables->timer_slack_delay);
 	add_timer_on(&icpu->slack_timer, cpu);
 }
 
@@ -197,7 +200,8 @@ static void gov_slack_timer_modify(struct interactive_cpu *icpu)
 {
 	struct interactive_tunables *tunables = icpu->ipolicy->tunables;
 
-	mod_timer(&icpu->slack_timer, jiffies + tunables->timer_slack_delay);
+	mod_timer(&icpu->slack_timer,
+		  jiffies + READ_ONCE(tunables->timer_slack_delay));
 }
 
 static void slack_timer_resched(struct interactive_cpu *icpu, int cpu,
@@ -857,10 +861,11 @@ static ssize_t store_timer_rate(struct gov_attr_set *attr_set, const char *buf,
 				size_t count)
 {
 	struct interactive_tunables *tunables = to_tunables(attr_set);
-	unsigned long val, val_round;
+	unsigned int val;
+	unsigned long val_round;
 	int ret;
 
-	ret = kstrtoul(buf, 0, &val);
+	ret = kstrtouint(buf, 0, &val);
 	if (ret < 0)
 		return ret;
 
@@ -869,7 +874,8 @@ static ssize_t store_timer_rate(struct gov_attr_set *attr_set, const char *buf,
 		pr_warn("timer_rate not aligned to jiffy. Rounded up to %lu\n",
 			val_round);
 
-	tunables->sampling_rate = val_round;
+	WRITE_ONCE(tunables->sampling_rate, val_round);
+	update_slack_delay(tunables);
 
 	return count;
 }
@@ -878,14 +884,14 @@ static ssize_t store_timer_slack(struct gov_attr_set *attr_set, const char *buf,
 				 size_t count)
 {
 	struct interactive_tunables *tunables = to_tunables(attr_set);
-	unsigned long val;
+	int val;
 	int ret;
 
-	ret = kstrtol(buf, 10, &val);
+	ret = kstrtoint(buf, 10, &val);
 	if (ret < 0)
 		return ret;
 
-	tunables->timer_slack = val;
+	WRITE_ONCE(tunables->timer_slack, val);
 	update_slack_delay(tunables);
 
 	return count;
@@ -971,7 +977,7 @@ static ssize_t store_io_is_busy(struct gov_attr_set *attr_set, const char *buf,
 show_one(hispeed_freq, "%u");
 show_one(go_hispeed_load, "%lu");
 show_one(min_sample_time, "%lu");
-show_one(timer_slack, "%lu");
+show_one(timer_slack, "%d");
 show_one(boost, "%u");
 show_one(boostpulse_duration, "%u");
 show_one(io_is_busy, "%u");
