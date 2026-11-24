@@ -732,11 +732,18 @@ static ssize_t store_target_loads(struct gov_attr_set *attr_set,
 	struct interactive_tunables *tunables = to_tunables(attr_set);
 	unsigned int *new_target_loads;
 	unsigned long flags;
-	int ntokens;
+	int i, ntokens;
 
 	new_target_loads = get_tokenized_data(buf, &ntokens);
 	if (IS_ERR(new_target_loads))
 		return PTR_ERR(new_target_loads);
+
+	for (i = 0; i < ntokens; i += 2) {
+		if (!new_target_loads[i] || new_target_loads[i] > 100) {
+			kfree(new_target_loads);
+			return -EINVAL;
+		}
+	}
 
 	spin_lock_irqsave(&tunables->target_loads_lock, flags);
 	if (tunables->target_loads != default_target_loads)
@@ -1154,6 +1161,9 @@ int cpufreq_interactive_init(struct cpufreq_policy *policy)
 	struct interactive_policy *ipolicy;
 	struct interactive_tunables *tunables;
 	int ret;
+
+	if (!cpufreq_table_count_valid_entries(policy))
+		return -EINVAL;
 
 	/* State should be equivalent to EXIT */
 	if (policy->governor_data)
