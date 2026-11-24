@@ -290,6 +290,24 @@ static unsigned int get_next_freq(struct sugov_policy *sg_policy,
 	sg_policy->need_freq_update = false;
 	sg_policy->prev_cached_raw_freq = sg_policy->cached_raw_freq;
 	sg_policy->cached_raw_freq = freq;
+
+#ifdef CONFIG_MTK_TINYSYS_SSPM_SUPPORT
+	if (policy->freq_table) {
+		int idx = cpufreq_frequency_table_target(policy, freq,
+							 CPUFREQ_RELATION_L);
+
+		/*
+		 * SSPM rounds up to a supported frequency. If the policy max
+		 * falls between entries, explicitly select the lower entry.
+		 */
+		if (idx >= 0 && policy->freq_table[idx].frequency > policy->max)
+			idx = cpufreq_frequency_table_target(policy, policy->max,
+							     CPUFREQ_RELATION_H);
+		if (idx >= 0)
+			return policy->freq_table[idx].frequency;
+	}
+#endif
+
 	return cpufreq_driver_resolve_freq(policy, freq);
 }
 
