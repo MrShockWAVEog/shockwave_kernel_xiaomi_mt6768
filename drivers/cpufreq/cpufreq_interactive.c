@@ -720,11 +720,11 @@ static ssize_t show_target_loads(struct gov_attr_set *attr_set, char *buf)
 
 	spin_lock_irqsave(&tunables->target_loads_lock, flags);
 
-	for (i = 0; i < tunables->ntarget_loads; i++)
-		ret += sprintf(buf + ret, "%u%s", tunables->target_loads[i],
-			       i & 0x1 ? ":" : " ");
+	for (i = 0; i < tunables->ntarget_loads && ret < PAGE_SIZE - 1; i++)
+		ret += sysfs_emit_at(buf, ret, "%u%c", tunables->target_loads[i],
+				    i & 0x1 ? ':' : ' ');
 
-	sprintf(buf + ret - 1, "\n");
+	buf[ret - 1] = '\n';
 	spin_unlock_irqrestore(&tunables->target_loads_lock, flags);
 
 	return ret;
@@ -769,12 +769,12 @@ static ssize_t show_above_hispeed_delay(struct gov_attr_set *attr_set,
 
 	spin_lock_irqsave(&tunables->above_hispeed_delay_lock, flags);
 
-	for (i = 0; i < tunables->nabove_hispeed_delay; i++)
-		ret += sprintf(buf + ret, "%u%s",
-			       tunables->above_hispeed_delay[i],
-			       i & 0x1 ? ":" : " ");
+	for (i = 0; i < tunables->nabove_hispeed_delay && ret < PAGE_SIZE - 1; i++)
+		ret += sysfs_emit_at(buf, ret, "%u%c",
+				    tunables->above_hispeed_delay[i],
+				    i & 0x1 ? ':' : ' ');
 
-	sprintf(buf + ret - 1, "\n");
+	buf[ret - 1] = '\n';
 	spin_unlock_irqrestore(&tunables->above_hispeed_delay_lock, flags);
 
 	return ret;
