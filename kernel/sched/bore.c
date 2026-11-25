@@ -465,7 +465,7 @@ static void readjust_all_task_weights(void)
 		if (!task_is_bore_eligible(task))
 			continue;
 		rq = task_rq_lock(task, &rf);
-		if (task_is_bore_eligible(task)) {
+		if (task->state != TASK_NEW && task_is_bore_eligible(task)) {
 			update_rq_clock(rq);
 			reweight_task_by_prio(task, effective_prio_bore(task));
 		}
