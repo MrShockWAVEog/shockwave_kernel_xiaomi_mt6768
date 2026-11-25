@@ -1723,6 +1723,7 @@ extern const u32		sched_prio_to_wmult[40];
 
 #define ENQUEUE_HEAD		0x10
 #define ENQUEUE_REPLENISH	0x20
+#define ENQUEUE_INITIAL		0x80
 #ifdef CONFIG_SMP
 #define ENQUEUE_MIGRATED	0x40
 #else

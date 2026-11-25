@@ -463,6 +463,8 @@ struct sched_entity {
 	struct rb_node			run_node;
 	struct list_head		group_node;
 	unsigned int			on_rq;
+	u8				custom_slice;
+	u8				rel_deadline;
 
 	u64				exec_start;
 	u64				sum_exec_runtime;
@@ -495,7 +497,7 @@ struct sched_entity {
 	ANDROID_KABI_USE(1, u64 deadline);
 	ANDROID_KABI_USE(2, u64 min_vruntime);
 	ANDROID_KABI_USE(3, s64 vlag);
-	ANDROID_KABI_USE(4, u64 slice);
+	ANDROID_KABI_USE2(4, u32 slice, u32 min_slice);
 };
 
 struct sched_rt_entity {
