@@ -3168,6 +3168,16 @@ void wake_up_new_task(struct task_struct *p)
 #endif
 	rq = __task_rq_lock(p, &rf);
 	update_rq_clock(rq);
+#ifdef CONFIG_SCHED_BORE
+	if (p->sched_class == &fair_sched_class) {
+		unsigned long weight = p->se.load.weight;
+
+		/* The BORE switch may have changed since sched_fork(). */
+		set_load_weight(p, false);
+		if (p->se.load.weight != weight)
+			init_entity_runnable_average(&p->se);
+	}
+#endif
 	post_init_entity_util_avg(&p->se);
 
 	activate_task(rq, p, ENQUEUE_NOCLOCK | ENQUEUE_INITIAL);
