@@ -2852,7 +2852,10 @@ static void __sched_fork(unsigned long clone_flags, struct task_struct *p)
 	p->se.deadline			= 0;
 	p->se.min_vruntime		= 0;
 	p->se.vlag			= 0;
-	p->se.slice			= 0;
+	if (!p->se.custom_slice)
+		p->se.slice		= 0;
+	p->se.min_slice			= 0;
+	p->se.rel_deadline		= 0;
 	INIT_LIST_HEAD(&p->se.group_node);
 
 #ifdef CONFIG_FAIR_GROUP_SCHED
@@ -3028,6 +3031,8 @@ int sched_fork(unsigned long clone_flags, struct task_struct *p)
 			p->static_prio = NICE_TO_PRIO(0);
 
 		p->prio = p->normal_prio = __normal_prio(p);
+		p->se.custom_slice = 0;
+		p->se.slice = 0;
 		set_load_weight(p, false);
 
 		/*
@@ -3126,7 +3131,7 @@ void wake_up_new_task(struct task_struct *p)
 	update_rq_clock(rq);
 	post_init_entity_util_avg(&p->se);
 
-	activate_task(rq, p, ENQUEUE_NOCLOCK);
+	activate_task(rq, p, ENQUEUE_NOCLOCK | ENQUEUE_INITIAL);
 	p->on_rq = TASK_ON_RQ_QUEUED;
 	trace_sched_wakeup_new(p);
 	check_preempt_curr(rq, p, WF_FORK);
@@ -4809,6 +4814,15 @@ static struct task_struct *find_process_by_pid(pid_t pid)
  */
 #define SETPARAM_POLICY	-1
 
+static u32 sched_requested_slice(const struct sched_attr *attr)
+{
+	if (!attr->sched_runtime)
+		return 0;
+
+	return clamp_t(u64, attr->sched_runtime, 100 * NSEC_PER_USEC,
+		       100 * NSEC_PER_MSEC);
+}
+
 static void __setscheduler_params(struct task_struct *p,
 		const struct sched_attr *attr)
 {
@@ -4821,8 +4835,18 @@ static void __setscheduler_params(struct task_struct *p,
 
 	if (dl_policy(policy))
 		__setparam_dl(p, attr);
-	else if (fair_policy(policy))
+	else if (fair_policy(policy)) {
+		u32 slice = sched_requested_slice(attr);
+
 		p->static_prio = NICE_TO_PRIO(attr->sched_nice);
+		if (slice != (p->se.custom_slice ? p->se.slice : 0))
+			p->se.rel_deadline = 0;
+		p->se.custom_slice = !!slice;
+		p->se.slice = slice ?: READ_ONCE(sysctl_sched_min_granularity);
+	} else if (idle_policy(policy)) {
+		p->se.custom_slice = 0;
+		p->se.rel_deadline = 0;
+	}
 
 	/*
 	 * __sched_setscheduler() ensures attr->sched_priority == 0 when
@@ -5012,7 +5036,9 @@ recheck:
 	 * but store a possible modification of reset_on_fork.
 	 */
 	if (unlikely(policy == p->policy)) {
-		if (fair_policy(policy) && attr->sched_nice != task_nice(p))
+		if (fair_policy(policy) &&
+		    (attr->sched_nice != task_nice(p) ||
+		     sched_requested_slice(attr) != (p->se.custom_slice ? p->se.slice : 0)))
 			goto change;
 		if (rt_policy(policy) && attr->sched_priority != p->rt_priority)
 			goto change;
@@ -5526,8 +5552,11 @@ SYSCALL_DEFINE4(sched_getattr, pid_t, pid, struct sched_attr __user *, uattr,
 		__getparam_dl(p, &kattr);
 	else if (task_has_rt_policy(p))
 		kattr.sched_priority = p->rt_priority;
-	else
+	else {
 		kattr.sched_nice = task_nice(p);
+		if (READ_ONCE(p->se.custom_slice))
+			kattr.sched_runtime = READ_ONCE(p->se.slice);
+	}
 
 #ifdef CONFIG_UCLAMP_TASK
 	kattr.sched_util_min = p->uclamp_req[UCLAMP_MIN].value;

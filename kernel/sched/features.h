@@ -36,6 +36,8 @@ SCHED_FEAT(CACHE_HOT_BUDDY, true)
  * Allow wakeup-time preemption of the current task:
  */
 SCHED_FEAT(WAKEUP_PREEMPTION, true)
+SCHED_FEAT(RUN_TO_PARITY, true)
+SCHED_FEAT(PREEMPT_SHORT, true)
 
 SCHED_FEAT(HRTICK, false)
 SCHED_FEAT(DOUBLE_TICK, false)

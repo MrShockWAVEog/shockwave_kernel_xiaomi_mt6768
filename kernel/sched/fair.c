@@ -710,6 +710,25 @@ static bool entity_eligible(struct cfs_rq *cfs_rq, struct sched_entity *se)
 	return vruntime_eligible(cfs_rq, se->vruntime);
 }
 
+static inline bool protect_slice(struct sched_entity *se)
+{
+	return (u64)se->vlag == se->deadline;
+}
+
+static inline void cancel_protect_slice(struct sched_entity *se)
+{
+	if (protect_slice(se))
+		se->vlag = se->deadline + 1;
+}
+
+static inline bool do_preempt_short(struct cfs_rq *cfs_rq,
+				    struct sched_entity *pse, struct sched_entity *se)
+{
+	return sched_feat(PREEMPT_SHORT) && pse->slice < se->slice &&
+	       entity_eligible(cfs_rq, pse) &&
+	       (entity_before(pse, se) || !entity_eligible(cfs_rq, se));
+}
+
 static void update_min_vruntime(struct cfs_rq *cfs_rq)
 {
 	struct sched_entity *curr = cfs_rq->curr;
@@ -744,21 +763,71 @@ static void update_min_vruntime(struct cfs_rq *cfs_rq)
 #endif
 }
 
-static u64 min_vruntime_compute(struct sched_entity *se)
+static bool update_entity_minimums(struct sched_entity *se)
 {
 	struct rb_node *node = &se->run_node;
 	u64 minimum = se->vruntime;
+	u32 slice = se->slice;
 
-	if (node->rb_left)
-		minimum = min_vruntime(minimum, __node_2_se(node->rb_left)->min_vruntime);
-	if (node->rb_right)
-		minimum = min_vruntime(minimum, __node_2_se(node->rb_right)->min_vruntime);
+	if (node->rb_left) {
+		struct sched_entity *left = __node_2_se(node->rb_left);
 
-	return minimum;
+		minimum = min_vruntime(minimum, left->min_vruntime);
+		slice = min(slice, left->min_slice);
+	}
+	if (node->rb_right) {
+		struct sched_entity *right = __node_2_se(node->rb_right);
+
+		minimum = min_vruntime(minimum, right->min_vruntime);
+		slice = min(slice, right->min_slice);
+	}
+	if (minimum == se->min_vruntime && slice == se->min_slice)
+		return false;
+
+	se->min_vruntime = minimum;
+	se->min_slice = slice;
+	return true;
 }
 
-RB_DECLARE_CALLBACKS(static, min_vruntime_cb, struct sched_entity, run_node,
-		     u64, min_vruntime, min_vruntime_compute);
+static void min_vruntime_propagate(struct rb_node *node, struct rb_node *stop)
+{
+	while (node != stop && update_entity_minimums(__node_2_se(node)))
+		node = rb_parent(node);
+}
+
+static void min_vruntime_copy(struct rb_node *old, struct rb_node *new)
+{
+	__node_2_se(new)->min_vruntime = __node_2_se(old)->min_vruntime;
+	__node_2_se(new)->min_slice = __node_2_se(old)->min_slice;
+}
+
+static void min_vruntime_rotate(struct rb_node *old, struct rb_node *new)
+{
+	min_vruntime_copy(old, new);
+	update_entity_minimums(__node_2_se(old));
+}
+
+static const struct rb_augment_callbacks min_vruntime_cb = {
+	.propagate = min_vruntime_propagate,
+	.copy = min_vruntime_copy,
+	.rotate = min_vruntime_rotate,
+};
+
+#ifdef CONFIG_FAIR_GROUP_SCHED
+static u32 cfs_rq_min_slice(struct cfs_rq *cfs_rq)
+{
+	struct rb_node *root = cfs_rq->tasks_timeline.rb_root.rb_node;
+	struct sched_entity *curr = cfs_rq->curr;
+	u32 slice = U32_MAX;
+
+	if (curr && curr->on_rq)
+		slice = curr->slice;
+	if (root)
+		slice = min(slice, __node_2_se(root)->min_slice);
+
+	return slice;
+}
+#endif
 
 /*
  * Enqueue an entity into the rb-tree:
@@ -772,6 +841,7 @@ static void __enqueue_entity(struct cfs_rq *cfs_rq, struct sched_entity *se)
 
 	avg_vruntime_add(cfs_rq, se);
 	se->min_vruntime = se->vruntime;
+	se->min_slice = se->slice;
 
 	/*
 	 * Find the right place in the rbtree:
@@ -780,6 +850,7 @@ static void __enqueue_entity(struct cfs_rq *cfs_rq, struct sched_entity *se)
 		parent = *link;
 		entry = __node_2_se(parent);
 		entry->min_vruntime = min_vruntime(entry->min_vruntime, se->vruntime);
+		entry->min_slice = min(entry->min_slice, se->slice);
 		/*
 		 * We dont care about collisions. Nodes with
 		 * the same key stay together.
@@ -849,6 +920,9 @@ static struct sched_entity *pick_eevdf(struct cfs_rq *cfs_rq)
 
 	if (curr && (!curr->on_rq || !entity_eligible(cfs_rq, curr)))
 		curr = NULL;
+
+	if (sched_feat(RUN_TO_PARITY) && curr && protect_slice(curr))
+		return curr;
 
 	/* Pick the leftmost entity if it's eligible */
 	if (se && entity_eligible(cfs_rq, se)) {
@@ -940,55 +1014,6 @@ static inline u64 calc_delta_fair(u64 delta, struct sched_entity *se)
 	return delta;
 }
 
-/*
- * The idea is to set a period in which each task runs once.
- *
- * When there are too many tasks (sched_nr_latency) we have to stretch
- * this period because otherwise the slices get too small.
- *
- * p = (nr <= nl) ? l : l*nr/nl
- */
-static u64 __sched_period(unsigned long nr_running)
-{
-	if (unlikely(nr_running > sched_nr_latency))
-		return nr_running * sysctl_sched_min_granularity;
-	else
-		return sysctl_sched_latency;
-}
-
-/*
- * We calculate the wall-time slice from the period by taking a part
- * proportional to the weight.
- *
- * s = p*P[w/rw]
- */
-static u64 sched_slice(struct cfs_rq *cfs_rq, struct sched_entity *se)
-{
-	u64 slice = __sched_period(cfs_rq->nr_running + !se->on_rq);
-
-	for_each_sched_entity(se) {
-		struct load_weight *load;
-		struct load_weight lw;
-
-		cfs_rq = cfs_rq_of(se);
-		load = &cfs_rq->load;
-
-		if (unlikely(!se->on_rq)) {
-			lw = cfs_rq->load;
-
-			update_load_add(&lw, se->load.weight);
-			load = &lw;
-		}
-		slice = __calc_delta(slice, se->load.weight, load);
-	}
-	return slice;
-}
-
-/*
- * We calculate the vruntime slice of a to-be-inserted task.
- *
- * vs = s/w
- */
 #include "pelt.h"
 #ifdef CONFIG_SMP
 
@@ -1104,7 +1129,8 @@ static void update_deadline(struct cfs_rq *cfs_rq, struct sched_entity *se)
 	if (!se->on_rq || (s64)(se->vruntime - se->deadline) < 0)
 		return;
 
-	se->slice = READ_ONCE(sysctl_sched_min_granularity);
+	if (!se->custom_slice)
+		se->slice = READ_ONCE(sysctl_sched_min_granularity);
 	se->deadline = se->vruntime + calc_delta_fair(se->slice, se);
 	if (cfs_rq->nr_running > 1)
 		resched_curr(rq_of(cfs_rq));
@@ -3198,6 +3224,9 @@ static void reweight_entity(struct cfs_rq *cfs_rq, struct sched_entity *se,
 		se->deadline = avruntime + div64_s64(deadline * (s64)old_weight, weight);
 	} else {
 		se->vlag = div64_s64(se->vlag * (s64)old_weight, weight);
+		if (se->rel_deadline)
+			se->deadline = div64_s64((s64)se->deadline * (s64)old_weight,
+						 weight);
 	}
 	dequeue_load_avg(cfs_rq, se);
 
@@ -3399,12 +3428,21 @@ static void update_cfs_group(struct sched_entity *se)
 {
 	struct cfs_rq *gcfs_rq = group_cfs_rq(se);
 	long shares, runnable;
+	u32 slice;
 
 	if (!gcfs_rq)
 		return;
 
 	if (throttled_hierarchy(gcfs_rq))
 		return;
+
+	slice = cfs_rq_min_slice(gcfs_rq);
+	if (slice != U32_MAX) {
+		se->slice = slice;
+		se->custom_slice = 1;
+		if (se->on_rq && cfs_rq_of(se)->curr != se)
+			min_vruntime_propagate(&se->run_node, NULL);
+	}
 
 #ifndef CONFIG_SMP
 	runnable = shares = READ_ONCE(gcfs_rq->tg->shares);
@@ -4245,7 +4283,8 @@ place_entity(struct cfs_rq *cfs_rq, struct sched_entity *se, bool initial)
 	s64 lag = se->vlag;
 	u64 vslice;
 
-	se->slice = READ_ONCE(sysctl_sched_min_granularity);
+	if (!se->custom_slice)
+		se->slice = READ_ONCE(sysctl_sched_min_granularity);
 	vslice = calc_delta_fair(se->slice, se);
 
 	if (curr && curr->on_rq)
@@ -4259,6 +4298,12 @@ place_entity(struct cfs_rq *cfs_rq, struct sched_entity *se, bool initial)
 		lag = 0;
 
 	se->vruntime = vruntime - lag;
+	if (se->rel_deadline) {
+		se->deadline += se->vruntime;
+		se->rel_deadline = 0;
+		return;
+	}
+
 	se->deadline = se->vruntime + (initial ? vslice / 2 : vslice);
 }
 
@@ -4352,7 +4397,7 @@ enqueue_entity(struct cfs_rq *cfs_rq, struct sched_entity *se, int flags)
 	enqueue_runnable_load_avg(cfs_rq, se);
 	account_entity_enqueue(cfs_rq, se);
 
-	place_entity(cfs_rq, se, !se->sum_exec_runtime);
+	place_entity(cfs_rq, se, flags & ENQUEUE_INITIAL);
 	/* Entity has migrated, no longer consider this task hot */
 	if (flags & ENQUEUE_MIGRATED)
 		se->exec_start = 0;
@@ -4440,6 +4485,10 @@ dequeue_entity(struct cfs_rq *cfs_rq, struct sched_entity *se, int flags)
 
 	clear_buddies(cfs_rq, se);
 	update_entity_lag(cfs_rq, se);
+	if (!(flags & DEQUEUE_SLEEP)) {
+		se->deadline -= se->vruntime;
+		se->rel_deadline = 1;
+	}
 
 	if (se != cfs_rq->curr)
 		__dequeue_entity(cfs_rq, se);
@@ -4483,6 +4532,8 @@ set_next_entity(struct cfs_rq *cfs_rq, struct sched_entity *se)
 		update_stats_wait_end(cfs_rq, se);
 		__dequeue_entity(cfs_rq, se);
 		update_load_avg(cfs_rq, se, UPDATE_TG);
+		/* vlag is recomputed when the entity is dequeued. */
+		se->vlag = se->deadline;
 	}
 
 	update_stats_curr_start(cfs_rq, se);
@@ -5386,12 +5437,11 @@ static inline void unthrottle_offline_cfs_rqs(struct rq *rq) {}
 static void hrtick_start_fair(struct rq *rq, struct task_struct *p)
 {
 	struct sched_entity *se = &p->se;
-	struct cfs_rq *cfs_rq = cfs_rq_of(se);
 
 	SCHED_WARN_ON(task_rq(p) != rq);
 
 	if (rq->cfs.h_nr_running > 1) {
-		u64 slice = sched_slice(cfs_rq, se);
+		u64 slice = se->slice;
 		u64 ran = se->sum_exec_runtime - se->prev_sum_exec_runtime;
 		s64 delta = slice - ran;
 
@@ -8015,6 +8065,8 @@ static void check_preempt_wakeup(struct rq *rq, struct task_struct *p, int wake_
 		return;
 
 	if (unlikely(curr->policy == SCHED_IDLE) && p->policy != SCHED_IDLE) {
+		find_matching_se(&se, &pse);
+		cancel_protect_slice(se);
 		resched_curr(rq);
 		return;
 	}
@@ -8024,6 +8076,8 @@ static void check_preempt_wakeup(struct rq *rq, struct task_struct *p, int wake_
 	find_matching_se(&se, &pse);
 	cfs_rq = cfs_rq_of(se);
 	update_curr(cfs_rq);
+	if (do_preempt_short(cfs_rq, pse, se))
+		cancel_protect_slice(se);
 	if (pick_eevdf(cfs_rq) == pse)
 		resched_curr(rq);
 }
@@ -8195,6 +8249,7 @@ static void yield_task_fair(struct rq *rq)
 	clear_buddies(cfs_rq, se);
 	update_rq_clock(rq);
 	update_curr(cfs_rq);
+	cancel_protect_slice(se);
 	if (entity_eligible(cfs_rq, se))
 		se->deadline += calc_delta_fair(se->slice, se);
 	rq_clock_skip_update(rq);
@@ -11771,7 +11826,7 @@ static unsigned int get_rr_interval_fair(struct rq *rq, struct task_struct *task
 	 * idle runqueue:
 	 */
 	if (rq->cfs.load.weight)
-		rr_interval = NS_TO_JIFFIES(sched_slice(cfs_rq_of(se), se));
+		rr_interval = NS_TO_JIFFIES(se->slice);
 
 	return rr_interval;
 }
