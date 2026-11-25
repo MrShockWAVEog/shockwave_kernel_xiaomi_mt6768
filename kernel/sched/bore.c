@@ -114,15 +114,17 @@ static void reweight_task_by_prio(struct task_struct *p, int prio)
 	if (!fair_policy(p->policy) || se->load.weight == weight)
 		return;
 
-	if (se->on_rq) {
-		p->bore->stop_update = true;
-		reweight_task(p, prio);
-		p->bore->stop_update = false;
-	} else {
+	/* A new task has not attached its load to a CFS runqueue yet. */
+	if (READ_ONCE(p->state) == TASK_NEW) {
 		se->load.weight = weight;
 		se->runnable_weight = weight;
+		se->load.inv_weight = sched_prio_to_wmult[prio];
+		return;
 	}
-	se->load.inv_weight = sched_prio_to_wmult[prio];
+
+	p->bore->stop_update = true;
+	reweight_task(p, prio);
+	p->bore->stop_update = false;
 }
 
 u8 effective_prio_bore(struct task_struct *p)
