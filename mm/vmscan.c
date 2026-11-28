@@ -4180,6 +4180,22 @@ static bool isolate_page(struct lruvec *lruvec, struct page *page, struct scan_c
 	return true;
 }
 
+static void prioritize_swapcache(struct list_head *head)
+{
+	int remaining = MIN_LRU_BATCH;
+	struct page *page, *next;
+	LIST_HEAD(preferred);
+
+	/* Reclaim from the tail. Preserve relative order within both groups. */
+	list_for_each_entry_safe_reverse(page, next, head, lru) {
+		if (PageSwapCache(page) && !PageDirty(page) && !PageWriteback(page))
+			list_move(&page->lru, &preferred);
+		if (!--remaining)
+			break;
+	}
+	list_splice_tail(&preferred, head);
+}
+
 static int scan_pages(struct lruvec *lruvec, struct scan_control *sc,
 		      int type, int tier, unsigned long nr_to_isolate,
 		      struct list_head *list)
@@ -4193,6 +4209,7 @@ static int scan_pages(struct lruvec *lruvec, struct scan_control *sc,
 	int remaining = MAX_LRU_BATCH;
 	struct lru_gen_struct *lrugen = &lruvec->lrugen;
 	struct mem_cgroup *memcg = lruvec_memcg(lruvec);
+	bool prefer_swapcache = type == LRU_GEN_ANON && vm_swap_full();
 
 	VM_BUG_ON(!list_empty(list));
 
@@ -4206,6 +4223,9 @@ static int scan_pages(struct lruvec *lruvec, struct scan_control *sc,
 		int skipped = 0;
 		int zone = (sc->reclaim_idx + i) % MAX_NR_ZONES;
 		struct list_head *head = &lrugen->lists[gen][type][zone];
+
+		if (prefer_swapcache && zone <= sc->reclaim_idx)
+			prioritize_swapcache(head);
 
 		while (!list_empty(head)) {
 			struct page *page = lru_to_page(head);

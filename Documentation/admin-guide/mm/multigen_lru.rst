@@ -79,6 +79,13 @@ kills.
 
 The default value ``0`` means disabled.
 
+Swap-cache preference on MT6768
+------------------------------
+When swap is more than half full and MGLRU selects anonymous reclaim, it
+looks ahead up to one batch in each eligible zone of the oldest anonymous
+generation. It scans clean swap-cache pages found there first, potentially
+reclaiming them without allocating a swap slot or writing to zRAM again.
+
 Experimental features
 =====================
 ``/sys/kernel/debug/lru_gen`` accepts commands described in the
