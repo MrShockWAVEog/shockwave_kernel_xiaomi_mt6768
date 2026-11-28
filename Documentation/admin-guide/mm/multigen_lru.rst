@@ -79,6 +79,14 @@ kills.
 
 The default value ``0`` means disabled.
 
+Promotion of young pages on MT6768
+----------------------------------
+Writing ``N`` to ``max_ttl_ms`` defers page-table-walk promotion from the
+second-youngest generation while that generation is younger than ``N``
+milliseconds. The walk leaves the accessed bits set so a subsequent scan
+can still use them. Full scans requested through debugfs bypass this limit.
+The default value ``0`` disables the limit.
+
 Swap-cache preference on MT6768
 ------------------------------
 When swap is more than half full and MGLRU selects anonymous reclaim, it

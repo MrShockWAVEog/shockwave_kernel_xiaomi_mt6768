@@ -3114,6 +3114,22 @@ static bool positive_ctrl_err(struct ctrl_pos *sp, struct ctrl_pos *pv)
  *                          the aging
  ******************************************************************************/
 
+static unsigned long lru_gen_max_ttl __read_mostly;
+
+/* The previous generation is still active. Keep its access bits for later. */
+static int young_gen_to_preserve(struct lruvec *lruvec, unsigned long max_seq)
+{
+	unsigned long ttl = READ_ONCE(lru_gen_max_ttl);
+	int gen = lru_gen_from_seq(max_seq - 1);
+	unsigned long birth;
+
+	if (!ttl)
+		return -1;
+
+	birth = READ_ONCE(lruvec->lrugen.timestamps[gen]);
+	return jiffies - birth < ttl ? gen : -1;
+}
+
 static int page_update_gen(struct page *page, int gen, int *type)
 {
 	unsigned long old_flags, new_flags;
@@ -3295,6 +3311,7 @@ static bool walk_pte_range(pmd_t *pmd, unsigned long start, unsigned long end,
 	struct mem_cgroup *memcg = lruvec_memcg(priv->lruvec);
 	struct pglist_data *pgdat = lruvec_pgdat(priv->lruvec);
 	int type, old_gen, new_gen = lru_gen_from_seq(priv->max_seq);
+	int young_gen = priv->full_scan ? -1 : young_gen_to_preserve(priv->lruvec, priv->max_seq);
 
 	VM_BUG_ON(pmd_trans_huge(*pmd) || pmd_devmap(*pmd));
 
@@ -3338,6 +3355,9 @@ restart:
 		if (page_memcg_rcu(page) != memcg)
 			continue;
 
+		if (young_gen >= 0 && page_lru_gen(page) == young_gen)
+			continue;
+
 		if (!ptep_test_and_clear_young(walk->vma, addr, pte + i))
 			continue;
 
@@ -3375,6 +3395,7 @@ static void walk_pmd_range_locked(pud_t *pud, unsigned long next, struct vm_area
 	struct mem_cgroup *memcg = lruvec_memcg(priv->lruvec);
 	struct pglist_data *pgdat = lruvec_pgdat(priv->lruvec);
 	int type, old_gen, new_gen = lru_gen_from_seq(priv->max_seq);
+	int young_gen = priv->full_scan ? -1 : young_gen_to_preserve(priv->lruvec, priv->max_seq);
 
 	VM_BUG_ON(pud_trans_huge(*pud) || pud_devmap(*pud));
 
@@ -3428,6 +3449,9 @@ static void walk_pmd_range_locked(pud_t *pud, unsigned long next, struct vm_area
 			goto next;
 
 		if (page_memcg_rcu(page) != memcg)
+			goto next;
+
+		if (young_gen >= 0 && page_lru_gen(page) == young_gen)
 			goto next;
 
 		if (!pmdp_test_and_clear_young(vma, addr, pmd + i))
@@ -3975,6 +3999,7 @@ void lru_gen_look_around(struct page_vma_mapped_walk *pvmw)
 	struct lruvec *lruvec = mem_cgroup_lruvec(pgdat, memcg);
 	DEFINE_MAX_SEQ(lruvec);
 	int type, old_gen, new_gen = lru_gen_from_seq(max_seq);
+	int young_gen = young_gen_to_preserve(lruvec, max_seq);
 
 	lockdep_assert_held(pvmw->ptl);
 	VM_BUG_ON_PAGE(PageLRU(pvmw->page), pvmw->page);
@@ -4028,6 +4053,9 @@ void lru_gen_look_around(struct page_vma_mapped_walk *pvmw)
 
 		/* File VMAs can contain anonymous pages from COW. */
 		if (!can_swap && !page_is_file_cache(page))
+			continue;
+
+		if (young_gen >= 0 && page_lru_gen(page) == young_gen)
 			continue;
 
 		if (!ptep_test_and_clear_young(pvmw->vma, addr, pte + i))
@@ -4763,6 +4791,28 @@ static struct kobj_attribute lru_gen_min_ttl_attr = __ATTR(
 	min_ttl_ms, 0644, show_min_ttl, store_min_ttl
 );
 
+static ssize_t show_max_ttl(struct kobject *kobj, struct kobj_attribute *attr, char *buf)
+{
+	return sprintf(buf, "%u\n", jiffies_to_msecs(READ_ONCE(lru_gen_max_ttl)));
+}
+
+static ssize_t store_max_ttl(struct kobject *kobj, struct kobj_attribute *attr,
+			     const char *buf, size_t len)
+{
+	unsigned int msecs;
+	int err = kstrtouint(buf, 0, &msecs);
+
+	if (err)
+		return err;
+
+	WRITE_ONCE(lru_gen_max_ttl, msecs_to_jiffies(msecs));
+	return len;
+}
+
+static struct kobj_attribute lru_gen_max_ttl_attr = __ATTR(
+	max_ttl_ms, 0644, show_max_ttl, store_max_ttl
+);
+
 static ssize_t show_enable(struct kobject *kobj, struct kobj_attribute *attr, char *buf)
 {
 	unsigned int caps = 0;
@@ -4812,6 +4862,7 @@ static struct kobj_attribute lru_gen_enabled_attr = __ATTR(
 
 static struct attribute *lru_gen_attrs[] = {
 	&lru_gen_min_ttl_attr.attr,
+	&lru_gen_max_ttl_attr.attr,
 	&lru_gen_enabled_attr.attr,
 	NULL
 };
