@@ -5058,7 +5058,7 @@ static int run_eviction(struct lruvec *lruvec, unsigned long seq, struct scan_co
 	int err = -EINTR;
 	DEFINE_MAX_SEQ(lruvec);
 
-	if (seq + MIN_NR_GENS > max_seq)
+	if (max_seq < MIN_NR_GENS || seq > max_seq - MIN_NR_GENS)
 		return -EINVAL;
 
 	sc->nr_reclaimed = 0;
